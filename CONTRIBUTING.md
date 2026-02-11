@@ -1,264 +1,419 @@
-# Contributing to Agent Orchestra
+# 🤝 Contributing to Agent Orchestra
 
-Thank you for your interest in contributing to Agent Orchestra! This document provides guidelines and information for contributors.
+Welcome to Agent Orchestra! We're thrilled that you're interested in contributing to our multi-agent orchestration framework. This guide will help you understand our development process and how to make meaningful contributions.
 
-## Code of Conduct
+## 🚀 Quick Start for Contributors
 
-We are committed to providing a welcoming and inspiring community for all. Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before contributing.
+### Prerequisites
 
-## Getting Started
+- Python 3.8+ installed
+- Git configured with your GitHub account
+- Basic familiarity with async programming and distributed systems
 
-### Development Environment Setup
+### Setting Up Your Development Environment
 
-1. **Clone the repository:**
+1. **Fork and Clone**
    ```bash
-   git clone https://github.com/andreycpu/agent-orchestra.git
+   # Fork the repository on GitHub first, then:
+   git clone https://github.com/YOUR_USERNAME/agent-orchestra.git
    cd agent-orchestra
    ```
 
-2. **Set up development environment:**
+2. **Set Up Development Environment**
    ```bash
-   make dev-setup
-   ```
+   # Use our automated setup
+   make setup-dev
    
-   Or manually:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -e .
+   # Or manual setup:
+   pip install -e ".[dev]"
    pip install -r requirements-dev.txt
+   pre-commit install
    ```
 
-3. **Start Redis (required for full functionality):**
+3. **Verify Installation**
    ```bash
-   make redis-start
-   # Or manually: docker run -d --name redis -p 6379:6379 redis:7-alpine
-   ```
-
-4. **Run tests to verify setup:**
-   ```bash
+   # Run tests to ensure everything works
    make test
+   
+   # Run the quickstart example
+   python examples/quickstart.py
    ```
 
-### Project Structure
+## 📋 Development Workflow
 
-```
-agent-orchestra/
-├── agent_orchestra/          # Main package
-│   ├── __init__.py           # Package exports
-│   ├── orchestra.py          # Main orchestration engine
-│   ├── agent.py              # Agent implementation
-│   ├── task_router.py        # Task routing logic
-│   ├── state_manager.py      # State persistence
-│   ├── failure_handler.py    # Error handling
-│   ├── monitoring.py         # Observability
-│   ├── events.py             # Event system
-│   ├── plugins.py            # Plugin framework
-│   ├── security.py           # Authentication/authorization
-│   ├── cluster.py            # Distributed deployment
-│   ├── config.py             # Configuration management
-│   ├── migration.py          # Database migrations
-│   ├── profiler.py           # Performance profiling
-│   ├── exporters.py          # Metrics exporters
-│   ├── utils.py              # Utility functions
-│   ├── types.py              # Data models
-│   ├── exceptions.py         # Exception classes
-│   └── cli.py                # Command-line interface
-├── tests/                    # Test suite
-├── examples/                 # Example applications
-├── docs/                     # Documentation
-├── config/                   # Configuration files
-├── scripts/                  # Utility scripts
-└── .github/                  # GitHub workflows
+### Creating Your Feature Branch
+
+```bash
+# Create and switch to a new feature branch
+git checkout -b feature/amazing-new-feature
+
+# Or for bug fixes:
+git checkout -b bugfix/fix-important-issue
 ```
 
-## How to Contribute
+### Making Changes
 
-### Reporting Issues
+1. **Write Code**: Implement your feature or fix
+2. **Add Tests**: Ensure your changes are well-tested
+3. **Update Documentation**: Keep docs in sync with your changes
+4. **Run Quality Checks**: Use our automated tools
 
-1. **Search existing issues** to avoid duplicates
-2. **Use issue templates** when available
-3. **Provide clear reproduction steps** for bugs
-4. **Include environment information** (Python version, OS, etc.)
+```bash
+# Format your code
+make format
 
-### Suggesting Features
+# Run all quality checks
+make quality
 
-1. **Check the roadmap** in issues or discussions
-2. **Open a feature request** with:
-   - Clear description of the proposed feature
-   - Use cases and benefits
-   - Possible implementation approach
-   - Breaking changes (if any)
+# Run tests
+make test-all
+```
 
-### Submitting Changes
+### Commit Guidelines
 
-#### Pull Request Process
+We use [Conventional Commits](https://www.conventionalcommits.org/):
 
-1. **Fork the repository** and create a feature branch
-2. **Make your changes** following coding standards
-3. **Add tests** for new functionality
-4. **Update documentation** if needed
-5. **Ensure all checks pass**
-6. **Submit a pull request**
+```bash
+# Feature commits
+git commit -m "feat: add new agent discovery mechanism"
 
-#### Branch Naming
+# Bug fix commits
+git commit -m "fix: resolve memory leak in task router"
 
-- `feature/description` - New features
-- `bugfix/description` - Bug fixes
-- `docs/description` - Documentation updates
-- `refactor/description` - Code refactoring
-- `test/description` - Test improvements
+# Documentation commits
+git commit -m "docs: update API documentation with examples"
 
-#### Commit Messages
+# Other types: refactor, test, chore, style, perf
+```
 
-Follow conventional commits:
-- `feat: add new functionality`
-- `fix: resolve bug in component`
-- `docs: update API documentation`
-- `test: add unit tests for router`
-- `refactor: simplify error handling`
-- `style: format code with black`
-- `chore: update dependencies`
+### Submitting Your Pull Request
 
-## Development Guidelines
+1. **Push Your Branch**
+   ```bash
+   git push origin feature/amazing-new-feature
+   ```
+
+2. **Create Pull Request**: Open a PR on GitHub with:
+   - Clear title and description
+   - Reference to related issues
+   - Screenshots/demos if applicable
+   - Checklist of completed items
+
+3. **Respond to Reviews**: Address feedback promptly and professionally
+
+## 🧪 Testing Standards
+
+### Test Categories
+
+We maintain several types of tests:
+
+```bash
+# Unit tests (fast, isolated)
+make test
+
+# Integration tests (slower, with dependencies)
+make test-integration
+
+# Performance tests
+make test-performance
+
+# All tests with coverage
+make test-cov
+```
+
+### Writing Good Tests
+
+1. **Test Structure**: Use the Arrange-Act-Assert pattern
+2. **Descriptive Names**: Test names should explain what they verify
+3. **Independent Tests**: Each test should be able to run in isolation
+4. **Mock External Dependencies**: Use mocks for Redis, databases, etc.
+
+Example test:
+```python
+class TestTaskRouter:
+    def test_finds_optimal_agent_for_text_processing(self):
+        # Arrange
+        router = TaskRouter()
+        agent = Agent("agent_1", capabilities=["text_processing"])
+        router.register_agent(agent)
+        task = Task(type="text_processing", data={"text": "Hello"})
+        
+        # Act
+        selected_agent = router.find_optimal_agent(task)
+        
+        # Assert
+        assert selected_agent == "agent_1"
+```
+
+## 🎯 Code Quality Standards
 
 ### Code Style
 
-- **Python**: Follow PEP 8, use `black` for formatting
-- **Type hints**: Required for all public functions
-- **Docstrings**: Use Google style docstrings
-- **Line length**: 88 characters (black default)
+We maintain high code quality with automated tools:
 
-#### Formatting Tools
+- **Black**: Code formatting (line length: 88)
+- **isort**: Import sorting
+- **flake8**: Linting and style checks
+- **mypy**: Static type checking
+- **bandit**: Security vulnerability scanning
 
-```bash
-make format          # Format code
-make check-format    # Check formatting
-make lint           # Run all linters
+### Type Hints
+
+All new code should include comprehensive type hints:
+
+```python
+from typing import Dict, List, Optional, Union
+import asyncio
+
+async def process_tasks(
+    tasks: List[Task], 
+    timeout: Optional[float] = None
+) -> Dict[str, Union[ExecutionResult, Exception]]:
+    """Process multiple tasks concurrently."""
+    # Implementation here
 ```
 
-### Testing
+### Documentation Standards
 
-#### Test Structure
-- Unit tests in `tests/`
-- Integration tests in `tests/integration/`
-- Test files named `test_*.py`
-- Test classes named `Test*`
+1. **Docstrings**: All public functions and classes need comprehensive docstrings
+2. **Type Information**: Include parameter and return types
+3. **Examples**: Provide usage examples for complex functions
+4. **Error Handling**: Document what exceptions can be raised
 
-#### Running Tests
-```bash
-make test           # Full test suite
-make test-fast      # Fast tests only
-pytest tests/test_agent.py -v  # Specific test file
+Example docstring:
+```python
+async def submit_task(self, task_data: Dict[str, Any]) -> str:
+    """Submit a task for execution by available agents.
+    
+    Args:
+        task_data: Dictionary containing task type, data, and options.
+            Must include 'type' key specifying the task type.
+            
+    Returns:
+        Unique task identifier for tracking execution status.
+        
+    Raises:
+        TaskRoutingError: When no suitable agents are available.
+        ValidationError: When task_data is invalid or incomplete.
+        
+    Example:
+        >>> task_id = await orchestra.submit_task({
+        ...     "type": "text_processing",
+        ...     "data": {"text": "Hello, world!"},
+        ...     "priority": "high"
+        ... })
+        >>> result = await orchestra.wait_for_task(task_id)
+    """
 ```
 
-#### Test Coverage
-- Aim for >90% coverage
-- Include both positive and negative test cases
-- Test error conditions and edge cases
+## 🔐 Security Considerations
 
-### Documentation
+### Security Review Process
 
-#### Code Documentation
-- All public classes and functions must have docstrings
-- Use Google style docstrings
-- Include examples in docstrings when helpful
+All contributions undergo security review:
 
-#### Project Documentation
-- Update README.md for user-facing changes
-- Update architecture docs for design changes
-- Add examples for new features
+1. **Automated Scanning**: Our CI runs security scans automatically
+2. **Manual Review**: Maintainers review security implications
+3. **Penetration Testing**: Complex features may require additional testing
 
-### Performance
+### Security Best Practices
 
-#### Guidelines
-- Use async/await for I/O operations
-- Profile performance-critical code
-- Include benchmarks for significant changes
-- Consider memory usage and leaks
+- **Input Validation**: Always validate external input
+- **Secure Defaults**: Default configurations should be secure
+- **Minimal Privileges**: Code should run with minimal required permissions
+- **Sensitive Data**: Never log or expose sensitive information
 
-#### Benchmarking
+### Reporting Security Issues
+
+🔒 **Do not open public issues for security vulnerabilities!**
+
+Instead, email our security team at: security@agent-orchestra.dev
+
+## 📊 Performance Guidelines
+
+### Performance Considerations
+
+- **Async/Await**: Use async patterns for I/O-bound operations
+- **Resource Management**: Use context managers for resource cleanup
+- **Memory Efficiency**: Avoid unnecessary object creation in hot paths
+- **Profiling**: Use our built-in profiler for performance analysis
+
+### Benchmarking
+
 ```bash
-make benchmark      # Run performance benchmarks
-make profile        # Profile example application
+# Run performance benchmarks
+make benchmark
+
+# Profile specific code
+make profile
+
+# Memory profiling
+make memory-profile
 ```
 
-### Security
+## 📚 Documentation Contributions
 
-#### Guidelines
-- Validate all inputs
-- Use parameterized queries
-- Follow principle of least privilege
-- Review security implications
+### Types of Documentation
 
-#### Security Checks
+1. **API Documentation**: Auto-generated from docstrings
+2. **User Guides**: Step-by-step tutorials and examples
+3. **Development Docs**: Architecture and design decisions
+4. **Configuration**: Comprehensive configuration examples
+
+### Building Documentation
+
 ```bash
-bandit -r agent_orchestra  # Security linting
+# Build documentation locally
+make docs
+
+# Serve docs for review
+make docs-serve
 ```
 
-## Plugin Development
+## 🐛 Issue Reporting
 
-### Creating Plugins
+### Before Opening an Issue
 
-1. Inherit from appropriate plugin interface:
-   ```python
-   from agent_orchestra.plugins import TaskPlugin
-   
-   class MyPlugin(TaskPlugin):
-       @property
-       def metadata(self):
-           return PluginMetadata(
-               name="my_plugin",
-               version="1.0.0",
-               description="My custom plugin"
-           )
-   ```
+1. **Search Existing Issues**: Check if your issue already exists
+2. **Read Documentation**: Ensure you've followed setup instructions
+3. **Minimal Reproduction**: Create the smallest possible example
 
-2. Implement required methods
-3. Register with plugin manager
-4. Add tests and documentation
+### Issue Templates
 
-### Plugin Guidelines
-- Follow single responsibility principle
-- Handle errors gracefully
-- Include configuration validation
-- Document plugin capabilities
+We provide templates for:
+- 🐛 Bug reports
+- ✨ Feature requests
+- 📖 Documentation improvements
+- 🚀 Performance issues
 
-## Release Process
+### Good Bug Reports Include:
 
-### Versioning
-- Follow [Semantic Versioning](https://semver.org/)
-- Major: Breaking changes
-- Minor: New features (backward compatible)
-- Patch: Bug fixes
+- **Clear Title**: Summarize the problem concisely
+- **Environment**: OS, Python version, package versions
+- **Steps to Reproduce**: Exact steps that trigger the issue
+- **Expected Behavior**: What should happen
+- **Actual Behavior**: What actually happens
+- **Code Examples**: Minimal code that reproduces the issue
 
-### Release Checklist
-1. Update version in `__init__.py`
-2. Update CHANGELOG.md
-3. Run full test suite
-4. Build and test package
-5. Create release tag
-6. Publish to PyPI (maintainers only)
+## 🏗️ Architecture Contributions
 
-## Community
+### Understanding the Architecture
+
+Before making significant changes:
+
+1. **Read the Architecture docs** in `/docs/architecture/`
+2. **Study the codebase** to understand patterns
+3. **Discuss with maintainers** for major changes
+
+### Design Principles
+
+- **Modularity**: Keep components loosely coupled
+- **Scalability**: Design for horizontal scaling
+- **Reliability**: Implement proper error handling and recovery
+- **Observability**: Include comprehensive logging and metrics
+- **Testability**: Design code to be easily testable
+
+## 🚀 Release Process
+
+### Release Schedule
+
+- **Major versions**: Quarterly (breaking changes)
+- **Minor versions**: Monthly (new features)
+- **Patch versions**: As needed (bug fixes)
+
+### Release Candidate Testing
+
+Help us test release candidates:
+
+```bash
+# Install release candidate
+pip install agent-orchestra==1.2.0rc1
+
+# Run your tests against it
+# Report any issues on GitHub
+```
+
+## 👥 Community
 
 ### Getting Help
-- **Issues**: Bug reports and feature requests
-- **Discussions**: Questions and community chat
-- **Documentation**: Check docs/ directory
-- **Examples**: See examples/ directory
 
-### Communication
-- Be respectful and inclusive
-- Provide constructive feedback
-- Help newcomers get started
-- Share knowledge and experiences
+- **GitHub Discussions**: For questions and general discussion
+- **GitHub Issues**: For bug reports and feature requests
+- **Discord Server**: For real-time chat (link in README)
+- **Stack Overflow**: Tag your questions with `agent-orchestra`
 
-## Recognition
+### Code of Conduct
+
+We follow the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md):
+
+- **Be Respectful**: Treat all community members with respect
+- **Be Inclusive**: Welcome people of all backgrounds
+- **Be Collaborative**: Work together towards common goals
+- **Be Patient**: Help newcomers learn and grow
+
+### Recognition
 
 Contributors are recognized in:
-- CONTRIBUTORS.md file
-- Release notes
-- Community discussions
+- **CONTRIBUTORS.md**: All contributors listed
+- **Release Notes**: Major contributors highlighted
+- **GitHub**: Contribution graphs and statistics
 
-Thank you for contributing to Agent Orchestra! 🎭✨
+## 📈 Advanced Contributions
+
+### Becoming a Maintainer
+
+Active contributors may be invited to become maintainers. Maintainers:
+
+- Review and merge pull requests
+- Triage issues and plan releases
+- Mentor new contributors
+- Make architectural decisions
+
+### Plugin Development
+
+Create plugins to extend functionality:
+
+```python
+from agent_orchestra.plugins import PluginInterface
+
+class MyCustomPlugin(PluginInterface):
+    def initialize(self):
+        # Plugin initialization
+        pass
+        
+    def process_event(self, event):
+        # Handle events
+        pass
+```
+
+### Integration Development
+
+Help us integrate with more systems:
+- Message queues (Kafka, RabbitMQ)
+- Databases (PostgreSQL, MongoDB)
+- Monitoring systems (Grafana, DataDog)
+- Container orchestrators (Kubernetes, Docker Swarm)
+
+## 🎉 Thank You!
+
+Your contributions make Agent Orchestra better for everyone! Whether you:
+
+- 🐛 Fix a typo in documentation
+- ✨ Add a major new feature
+- 🧪 Improve test coverage
+- 📝 Write better examples
+- 🚀 Optimize performance
+
+Every contribution matters and is greatly appreciated! 
+
+---
+
+## 📞 Questions?
+
+If you have any questions about contributing:
+
+- 💬 Start a [GitHub Discussion](https://github.com/andreycpu/agent-orchestra/discussions)
+- 📧 Email us at: contributors@agent-orchestra.dev
+- 🐦 Tweet us at: [@AgentOrchestra](https://twitter.com/AgentOrchestra)
+
+**Happy Contributing! 🎭✨**
