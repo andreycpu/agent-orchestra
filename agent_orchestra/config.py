@@ -9,6 +9,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 import structlog
 
+from .exceptions import ConfigurationError, ValidationError
+
 logger = structlog.get_logger(__name__)
 
 
@@ -25,6 +27,33 @@ class OrchestraConfig:
     failure_retry_attempts: int = 3
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: int = 300
+    
+    def __post_init__(self):
+        """Validate configuration after initialization"""
+        self.validate()
+    
+    def validate(self) -> None:
+        """Validate configuration parameters"""
+        if self.max_concurrent_tasks <= 0:
+            raise ValidationError("max_concurrent_tasks must be positive")
+            
+        if self.task_timeout_default <= 0:
+            raise ValidationError("task_timeout_default must be positive")
+            
+        if self.heartbeat_interval <= 0:
+            raise ValidationError("heartbeat_interval must be positive")
+            
+        if self.log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+            raise ValidationError(f"Invalid log_level: {self.log_level}")
+            
+        if self.failure_retry_attempts < 0:
+            raise ValidationError("failure_retry_attempts cannot be negative")
+            
+        if self.circuit_breaker_threshold <= 0:
+            raise ValidationError("circuit_breaker_threshold must be positive")
+            
+        if self.circuit_breaker_timeout <= 0:
+            raise ValidationError("circuit_breaker_timeout must be positive")
 
 
 @dataclass
