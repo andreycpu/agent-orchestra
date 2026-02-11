@@ -161,6 +161,9 @@ config/local/
 metrics.txt
 profile.stats
 bandit-report.json
+*.db
+*.sqlite
+*.sqlite3
 
 # IDE
 .vscode/
