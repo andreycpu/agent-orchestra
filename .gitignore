@@ -156,33 +156,159 @@ cython_debug/
 logs/
 data/
 config/local/
+config/secrets/
+config/production/
 *.pid
 *.stats
 metrics.txt
 profile.stats
 bandit-report.json
+safety-report.json
+semgrep-report.json
+pip-audit-report.json
 *.db
 *.sqlite
 *.sqlite3
 
-# IDE
+# Security and sensitive files
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+.env.local
+.env.production
+.env.secrets
+secrets.yaml
+credentials.json
+service-account.json
+
+# Monitoring and reports
+reports/
+*.prof
+*.stats
+memory-profile.png
+flamegraph.svg
+perf.data*
+
+# Cache and temporary
+.cache/
+.temp/
+.tmp/
+tmp/
+temp/
+cache/
+
+# IDE and editors
 .vscode/
 .idea/
+.sublime-project
+.sublime-workspace
 *.swp
 *.swo
 *~
+.vim/
+.nvim/
+.emacs.d/
+.eclipse/
+.netbeans/
 
-# OS
+# OS specific
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# Docker
-# .dockerignore - should be versioned
+# Container and orchestration
+docker-compose.override.yml
+.docker/
+k8s-local/
+helm-values-local.yaml
+skaffold.yaml
+
+# Language servers and tools
+.vscode/settings.json
+.vscode/launch.json
+pyrightconfig.json
+.pylsp.json
+.rope_project/
+.ropeproject/
+
+# Backup files
+*.bak
+*.backup
+*.orig
+*.save
+*~
+#*#
 
 # Temporary files
 *.tmp
 *.temp
-*.bak
+*.swp
+*.swo
+*.lock
+.#*
 
-# Redis dumps
+# Package managers
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+
+# Redis and databases
 dump.rdb
+*.rdb
+*.aof
+redis.log
+postgres_data/
+mysql_data/
+mongodb_data/
+
+# Jupyter and analysis
+.ipynb_checkpoints/
+*.ipynb
+analysis/
+experiments/
+notebooks/
+
+# Machine learning artifacts
+models/
+checkpoints/
+weights/
+*.pkl
+*.pickle
+*.model
+*.h5
+*.hdf5
+
+# Performance and profiling
+*.prof
+*.pstats
+*.trace
+*.profile
+benchmark_results/
+performance_logs/
+
+# Documentation builds
+docs/build/
+docs/_build/
+docs/.doctrees/
+site/
+
+# CI/CD artifacts
+.circleci/
+.github/environments/
+.gitlab-ci/
+ci-reports/
+test-results/
+
+# Local development
+local/
+dev/
+.dev/
+development/
+sandbox/
