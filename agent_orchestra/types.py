@@ -3,7 +3,7 @@ Core types and data structures for Agent Orchestra
 """
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator, root_validator
 from datetime import datetime
 import uuid
 
@@ -47,6 +47,24 @@ class Task(BaseModel):
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     dependencies: List[str] = Field(default_factory=list)
+    
+    @validator('type')
+    def validate_task_type(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Task type cannot be empty')
+        return v.strip()
+    
+    @validator('timeout')
+    def validate_timeout(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('Timeout must be positive')
+        return v
+    
+    @validator('max_retries')
+    def validate_max_retries(cls, v):
+        if v < 0:
+            raise ValueError('Max retries cannot be negative')
+        return v
 
 
 class AgentCapability(BaseModel):
