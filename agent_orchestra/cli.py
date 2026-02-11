@@ -8,6 +8,7 @@ import json
 import time
 from typing import Dict, Any, Optional
 from pathlib import Path
+from datetime import datetime
 import structlog
 
 from .orchestra import Orchestra
@@ -153,6 +154,28 @@ class OrchestrationCLI:
         # Show config
         config_subparsers.add_parser("show", help="Show current configuration")
         
+        # Export command
+        export_parser = subparsers.add_parser("export", help="Export data and metrics")
+        export_subparsers = export_parser.add_subparsers(dest="export_action")
+        
+        # Export metrics
+        metrics_parser = export_subparsers.add_parser("metrics", help="Export metrics")
+        metrics_parser.add_argument("--format", choices=["prometheus", "json", "influxdb"], 
+                                   default="json", help="Export format")
+        metrics_parser.add_argument("--output", help="Output file (default: stdout)")
+        
+        # Export tasks
+        tasks_parser = export_subparsers.add_parser("tasks", help="Export task data")
+        tasks_parser.add_argument("--format", choices=["json", "csv"], default="json")
+        tasks_parser.add_argument("--output", help="Output file (default: stdout)")
+        tasks_parser.add_argument("--status", help="Filter by task status")
+        tasks_parser.add_argument("--limit", type=int, default=1000, help="Limit number of tasks")
+        
+        # Performance command
+        perf_parser = subparsers.add_parser("performance", help="Performance analysis")
+        perf_parser.add_argument("--duration", type=int, default=300, help="Analysis duration in seconds")
+        perf_parser.add_argument("--output", help="Output file for report")
+        
         return parser
     
     async def run(self, args: argparse.Namespace):
@@ -180,6 +203,10 @@ class OrchestrationCLI:
                 await self._show_monitor(args)
             elif args.command == "config":
                 await self._handle_config_command(args)
+            elif args.command == "export":
+                await self._handle_export_command(args)
+            elif args.command == "performance":
+                await self._handle_performance_command(args)
             else:
                 logger.error("Unknown command", command=args.command)
                 sys.exit(1)
@@ -466,6 +493,114 @@ class OrchestrationCLI:
             print(json.dumps(config, indent=2))
         else:
             print("No configuration loaded")
+    
+    async def _handle_export_command(self, args: argparse.Namespace):
+        """Handle export commands"""
+        if args.export_action == "metrics":
+            await self._export_metrics(args)
+        elif args.export_action == "tasks":
+            await self._export_tasks(args)
+    
+    async def _export_metrics(self, args: argparse.Namespace):
+        """Export metrics in specified format"""
+        if not self.orchestra:
+            print("Orchestra is not running")
+            return
+        
+        status = await self.orchestra.get_status()
+        
+        if args.format == "json":
+            output = json.dumps(status, indent=2)
+        elif args.format == "prometheus":
+            from .exporters import PrometheusExporter
+            exporter = PrometheusExporter()
+            output = exporter.export_system_metrics(status)
+        elif args.format == "influxdb":
+            from .exporters import InfluxDBExporter
+            exporter = InfluxDBExporter()
+            lines = []
+            if "global_state" in status:
+                lines.extend(exporter.export_task_metrics(status["global_state"]))
+            output = "\n".join(lines)
+        
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(output)
+            print(f"Metrics exported to {args.output}")
+        else:
+            print(output)
+    
+    async def _export_tasks(self, args: argparse.Namespace):
+        """Export task data"""
+        if not self.orchestra:
+            print("Orchestra is not running")
+            return
+        
+        # Get task data (simplified - would normally query state manager)
+        tasks = []
+        
+        if args.format == "json":
+            from .exporters import JSONExporter
+            exporter = JSONExporter()
+            output = exporter.export_tasks(tasks)
+        elif args.format == "csv":
+            if args.output:
+                from .exporters import CSVExporter
+                exporter = CSVExporter()
+                with open(args.output, 'w') as f:
+                    exporter.write_tasks_csv(tasks, f)
+                print(f"Tasks exported to {args.output}")
+                return
+            else:
+                print("CSV export requires --output file")
+                return
+        
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(output)
+            print(f"Tasks exported to {args.output}")
+        else:
+            print(output)
+    
+    async def _handle_performance_command(self, args: argparse.Namespace):
+        """Handle performance analysis command"""
+        if not self.orchestra:
+            print("Orchestra is not running")
+            return
+        
+        print(f"Running performance analysis for {args.duration} seconds...")
+        
+        # Start monitoring performance
+        start_time = time.time()
+        initial_status = await self.orchestra.get_status()
+        
+        await asyncio.sleep(args.duration)
+        
+        final_status = await self.orchestra.get_status()
+        
+        # Calculate performance metrics
+        duration = args.duration
+        
+        report = {
+            "analysis_duration": duration,
+            "start_time": datetime.utcnow().isoformat(),
+            "initial_metrics": initial_status,
+            "final_metrics": final_status,
+            "performance_summary": {
+                "average_load": "N/A",  # Would calculate from monitoring data
+                "throughput": "N/A",
+                "error_rate": "N/A"
+            }
+        }
+        
+        output = json.dumps(report, indent=2)
+        
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(output)
+            print(f"Performance report saved to {args.output}")
+        else:
+            print(output)
 
 
 def main():
