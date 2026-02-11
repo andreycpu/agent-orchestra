@@ -68,6 +68,10 @@ jobs:
       run: |
         bandit -r agent_orchestra -f json -o bandit-report.json
     
+    - name: Security vulnerability check with safety
+      run: |
+        safety check --json --output safety-report.json || true
+    
     - name: Test with pytest
       env:
         REDIS_URL: redis://localhost:6379/0
