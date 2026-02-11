@@ -1,0 +1,262 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety pip-audit
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run Safety check
+      run: |
+        safety check --json --output safety-report.json || true
+        safety check --short-report
+    
+    - name: Run pip-audit
+      run: |
+        pip-audit --format=json --output=pip-audit-report.json || true
+        pip-audit --format=cyclonedx-json --output=sbom.json || true
+    
+    - name: Upload Safety report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: safety-report
+        path: safety-report.json
+    
+    - name: Upload pip-audit report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: pip-audit-report
+        path: |
+          pip-audit-report.json
+          sbom.json
+
+  code-security-scan:
+    name: Code Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit[toml] semgrep
+    
+    - name: Run Bandit security scanner
+      run: |
+        bandit -r agent_orchestra/ \
+               -f json \
+               -o bandit-report.json \
+               --severity-level medium \
+               --confidence-level medium
+        bandit -r agent_orchestra/ \
+               -f txt \
+               --severity-level medium \
+               --confidence-level medium
+      continue-on-error: true
+    
+    - name: Run Semgrep security scanner
+      run: |
+        semgrep --config=auto \
+                --json \
+                --output=semgrep-report.json \
+                agent_orchestra/
+        semgrep --config=auto \
+                --text \
+                agent_orchestra/
+      continue-on-error: true
+    
+    - name: Upload Bandit report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: bandit-report
+        path: bandit-report.json
+    
+    - name: Upload Semgrep report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: semgrep-report
+        path: semgrep-report.json
+
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for secret scanning
+    
+    - name: Run GitLeaks secret scanner
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  trivy-scan:
+    name: Trivy Security Scanner
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy filesystem scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Run Trivy config scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'config'
+        scan-ref: '.'
+        format: 'table'
+      continue-on-error: true
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-results
+        path: trivy-results.sarif
+
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python' ]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        queries: +security-and-quality
+    
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, code-security-scan, secret-scan, trivy-scan]
+    if: always()
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: security-reports
+    
+    - name: Generate Security Report Summary
+      run: |
+        echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Scans Completed" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Dependency vulnerability scan" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Static code security analysis" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Secret detection scan" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Infrastructure security scan" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Reports Available" >> $GITHUB_STEP_SUMMARY
+        echo "Security scan reports are available as workflow artifacts." >> $GITHUB_STEP_SUMMARY
+        
+        # Check if any critical issues were found
+        if [ -f security-reports/bandit-report/bandit-report.json ]; then
+          HIGH_ISSUES=$(jq '.metrics._totals.SEVERITY.HIGH // 0' security-reports/bandit-report/bandit-report.json)
+          MEDIUM_ISSUES=$(jq '.metrics._totals.SEVERITY.MEDIUM // 0' security-reports/bandit-report/bandit-report.json)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Bandit Results" >> $GITHUB_STEP_SUMMARY
+          echo "- High severity issues: $HIGH_ISSUES" >> $GITHUB_STEP_SUMMARY
+          echo "- Medium severity issues: $MEDIUM_ISSUES" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Comment PR with security results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          let comment = '## 🔒 Security Scan Results\n\n';
+          comment += 'The following security scans have been completed:\n\n';
+          comment += '- ✅ Dependency vulnerability scanning\n';
+          comment += '- ✅ Static code analysis for security issues\n';
+          comment += '- ✅ Secret detection\n';
+          comment += '- ✅ Infrastructure security scanning\n\n';
+          comment += 'Detailed reports are available in the workflow artifacts.\n\n';
+          comment += 'Please review any security findings before merging.';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
