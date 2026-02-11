@@ -3,6 +3,9 @@ Agent Orchestra - Multi-agent orchestration framework
 """
 
 __version__ = "0.1.0"
+__title__ = "Agent Orchestra"
+__description__ = "A multi-agent orchestration framework"
+__url__ = "https://github.com/andreycpu/agent-orchestra"
 __author__ = "Agent Orchestra Team"
 
 from .orchestra import Orchestra
