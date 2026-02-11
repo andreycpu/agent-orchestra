@@ -3,7 +3,9 @@ Task routing logic for Agent Orchestra
 """
 from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import heapq
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
+from collections import defaultdict, deque
 import structlog
 
 from .types import Task, AgentInfo, TaskPriority, AgentStatus
@@ -22,9 +24,29 @@ class TaskRouter:
         self._task_queue: List[Tuple[int, Task]] = []  # Priority queue (priority, task)
         self._dependency_graph: Dict[str, Set[str]] = {}
         
+        # Performance optimization caches
+        self._routing_cache: Dict[str, Tuple[str, float]] = {}  # task_type -> (agent_id, timestamp)
+        self._capability_index: Dict[str, Set[str]] = defaultdict(set)  # capability -> agent_ids
+        self._agent_load: Dict[str, int] = defaultdict(int)  # agent_id -> current task count
+        self._performance_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))  # agent_id -> execution_times
+        
+        # Cache configuration
+        self._cache_ttl = 300.0  # 5 minutes
+        self._last_cache_cleanup = time.time()
+        
     def register_agent(self, agent_info: AgentInfo):
         """Register an agent with the router"""
         self._agents[agent_info.id] = agent_info
+        
+        # Update capability index for fast lookups
+        for capability in agent_info.capabilities:
+            self._capability_index[capability.name].add(agent_info.id)
+        
+        # Initialize performance tracking
+        self._agent_load[agent_info.id] = 0
+        
+        # Invalidate routing cache for this agent's capabilities
+        self._invalidate_cache_for_capabilities([cap.name for cap in agent_info.capabilities])
         
         logger.info(
             "Agent registered with router",
@@ -195,3 +217,81 @@ class TaskRouter:
         """Remove a completed task from dependency tracking"""
         if task_id in self._dependency_graph:
             del self._dependency_graph[task_id]
+    
+    def _invalidate_cache_for_capabilities(self, capabilities: List[str]):
+        """Invalidate routing cache entries for specific capabilities"""
+        keys_to_remove = []
+        for task_type, (agent_id, _) in self._routing_cache.items():
+            if any(cap in task_type for cap in capabilities):
+                keys_to_remove.append(task_type)
+        
+        for key in keys_to_remove:
+            del self._routing_cache[key]
+    
+    def _cleanup_expired_cache_entries(self):
+        """Remove expired cache entries"""
+        current_time = time.time()
+        if current_time - self._last_cache_cleanup > self._cache_ttl:
+            expired_keys = []
+            for task_type, (_, timestamp) in self._routing_cache.items():
+                if current_time - timestamp > self._cache_ttl:
+                    expired_keys.append(task_type)
+            
+            for key in expired_keys:
+                del self._routing_cache[key]
+            
+            self._last_cache_cleanup = current_time
+    
+    def update_agent_performance(self, agent_id: str, execution_time: float):
+        """Update performance metrics for an agent"""
+        self._performance_history[agent_id].append(execution_time)
+        
+        # Update load tracking
+        if agent_id in self._agent_load:
+            self._agent_load[agent_id] = max(0, self._agent_load[agent_id] - 1)
+    
+    def _get_agent_performance_score(self, agent_id: str) -> float:
+        """Calculate performance score for an agent (lower is better)"""
+        if agent_id not in self._performance_history or not self._performance_history[agent_id]:
+            return 0.0  # No history, neutral score
+        
+        # Calculate average execution time
+        avg_time = sum(self._performance_history[agent_id]) / len(self._performance_history[agent_id])
+        
+        # Factor in current load
+        load_penalty = self._agent_load.get(agent_id, 0) * 0.1
+        
+        return avg_time + load_penalty
+    
+    def find_optimal_agent_fast(self, task: Task) -> Optional[str]:
+        """Fast agent selection using performance caching and indexing"""
+        self._cleanup_expired_cache_entries()
+        
+        # Check cache first
+        if task.type in self._routing_cache:
+            agent_id, _ = self._routing_cache[task.type]
+            if agent_id in self._agents and self._agents[agent_id].status == AgentStatus.IDLE:
+                return agent_id
+        
+        # Find capable agents using index
+        capable_agents = self._capability_index.get(task.type, set())
+        if not capable_agents:
+            return None
+        
+        # Filter by availability
+        available_agents = [
+            agent_id for agent_id in capable_agents
+            if agent_id in self._agents and self._agents[agent_id].status == AgentStatus.IDLE
+        ]
+        
+        if not available_agents:
+            return None
+        
+        # Select best agent based on performance
+        best_agent = min(available_agents, key=self._get_agent_performance_score)
+        
+        # Update cache and load tracking
+        self._routing_cache[task.type] = (best_agent, time.time())
+        self._agent_load[best_agent] += 1
+        
+        return best_agent
