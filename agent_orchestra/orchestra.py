@@ -114,6 +114,22 @@ class Orchestra:
         
         logger.info("Orchestra stopped")
     
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.start()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.stop()
+        if exc_type:
+            logger.error(
+                "Orchestra context exited with exception",
+                exception_type=exc_type.__name__,
+                exception_message=str(exc_val)
+            )
+        return False  # Don't suppress exceptions
+    
     def register_agent(self, agent: Agent):
         """Register an agent with the orchestra"""
         if agent.id in self._agents:

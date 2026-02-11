@@ -48,6 +48,16 @@ class StateManager:
             await self._redis.close()
             logger.info("Redis connection closed")
     
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.initialize()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.shutdown()
+        return False  # Don't suppress exceptions
+    
     async def store_task(self, task: Task):
         """
         Store a task in persistent state.
