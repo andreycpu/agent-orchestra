@@ -49,7 +49,15 @@ class StateManager:
             logger.info("Redis connection closed")
     
     async def store_task(self, task: Task):
-        """Store a task in persistent state"""
+        """
+        Store a task in persistent state.
+        
+        Args:
+            task: Task object to store
+            
+        Raises:
+            StateManagementError: If storage operation fails
+        """
         task_data = task.dict()
         
         async with self._get_lock(f"task:{task.id}"):
@@ -65,7 +73,18 @@ class StateManager:
         logger.debug("Task stored", task_id=task.id, status=task.status)
     
     async def get_task(self, task_id: str) -> Optional[Task]:
-        """Retrieve a task from persistent state"""
+        """
+        Retrieve a task from persistent state.
+        
+        Args:
+            task_id: Unique identifier of the task
+            
+        Returns:
+            Task object if found, None otherwise
+            
+        Raises:
+            StateManagementError: If retrieval operation fails
+        """
         async with self._get_lock(f"task:{task_id}"):
             if self._redis:
                 task_data = await self._redis.hget("tasks", task_id)
