@@ -8,3 +8,4 @@ prometheus-client>=0.16
 PyJWT>=2.8
 PyYAML>=6.0
 psutil>=5.9
+mccabe>=0.7.0
