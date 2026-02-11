@@ -3,66 +3,100 @@
 # Build stage
 FROM python:3.11-slim as builder
 
+# Install security updates and system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Create virtual environment for better isolation
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy requirements first for better caching
-COPY requirements-dev.txt setup.py ./
+COPY requirements.txt requirements-dev.txt pyproject.toml ./
 COPY agent_orchestra/__init__.py agent_orchestra/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir wheel \
+# Install Python dependencies with security scanning
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir safety \
+    && safety check -r requirements.txt \
     && pip install --no-cache-dir -r requirements-dev.txt
 
 # Copy the rest of the application
 COPY . .
 
 # Install the package
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e . \
+    && pip list --format=freeze > installed_packages.txt
 
 # Production stage
 FROM python:3.11-slim as production
 
-# Create non-root user
-RUN groupadd -r orchestra && useradd -r -g orchestra orchestra
+# Install security updates and minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user with specific UID/GID for security
+RUN groupadd -r -g 1001 orchestra && \
+    useradd -r -g orchestra -u 1001 -s /bin/false -c "Orchestra User" orchestra
 
 # Set working directory
 WORKDIR /app
 
-# Install runtime dependencies only
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Copy virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy installed packages from builder stage
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Copy application code and set ownership
+COPY --chown=orchestra:orchestra agent_orchestra ./agent_orchestra
+COPY --chown=orchestra:orchestra config ./config
+COPY --chown=orchestra:orchestra examples ./examples
+COPY --chown=orchestra:orchestra pyproject.toml setup.py ./
 
-# Copy application code
-COPY --chown=orchestra:orchestra . .
+# Create directories for logs and data with proper permissions
+RUN mkdir -p /app/logs /app/data /tmp/agent_orchestra \
+    && chown -R orchestra:orchestra /app /tmp/agent_orchestra \
+    && chmod 755 /app/logs /app/data \
+    && chmod 1777 /tmp/agent_orchestra
 
-# Create directories for logs and data
-RUN mkdir -p /app/logs /app/data \
-    && chown -R orchestra:orchestra /app
+# Add security labels
+LABEL org.opencontainers.image.title="Agent Orchestra" \
+      org.opencontainers.image.description="Multi-agent orchestration framework" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.vendor="Agent Orchestra Team" \
+      org.opencontainers.image.source="https://github.com/andreycpu/agent-orchestra" \
+      org.opencontainers.image.licenses="MIT" \
+      security.scan.type="production"
+
+# Set security-focused environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    TMPDIR=/tmp/agent_orchestra \
+    HOME=/app
 
 # Switch to non-root user
-USER orchestra
+USER orchestra:orchestra
 
-# Expose metrics port
+# Expose metrics port (non-privileged)
 EXPOSE 8080
 
-# Health check
+# Health check with better security
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD python -c "import requests; requests.get('http://localhost:8080/health', timeout=5)" || exit 1
 
-# Default command
+# Default command with signal handling
 CMD ["python", "-m", "agent_orchestra.cli", "start", "--monitor"]
 
 # Development stage
