@@ -174,7 +174,7 @@ bandit-report.json
 Thumbs.db
 
 # Docker
-.dockerignore
+# .dockerignore - should be versioned
 
 # Temporary files
 *.tmp
