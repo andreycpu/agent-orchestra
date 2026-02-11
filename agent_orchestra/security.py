@@ -330,13 +330,19 @@ class SecurityManager:
         logger.info("User sessions revoked", user_id=user_id, count=count)
     
     def _generate_jwt_token(self, user: User) -> str:
-        """Generate JWT token for user"""
+        """Generate JWT token for user with security hardening"""
+        now = datetime.utcnow()
+        
         payload = {
             "user_id": user.id,
             "username": user.username,
             "roles": list(user.roles),
-            "iat": datetime.utcnow(),
-            "exp": datetime.utcnow() + timedelta(hours=self.token_expiry_hours)
+            "iat": now,
+            "exp": now + timedelta(hours=self.token_expiry_hours),
+            "nbf": now,  # Not before - token is not valid before this time
+            "jti": secrets.token_hex(16),  # JWT ID for token tracking/revocation
+            "iss": "agent-orchestra",  # Issuer
+            "aud": "agent-orchestra-api"  # Audience
         }
         
         return jwt.encode(payload, self.jwt_secret, algorithm="HS256")
