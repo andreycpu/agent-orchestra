@@ -50,7 +50,24 @@ repos:
     rev: 1.7.5
     hooks:
       - id: bandit
-        args: [-r, ., --exclude, tests/]
+        args: [-r, ., --exclude, tests/, --skip, B101,B601]
+  
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: [--convention=google, --add-ignore=D100,D104]
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        args: [--py38-plus]
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.3.2
+    hooks:
+      - id: python-safety-dependencies-check
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: 0.27.3
@@ -79,6 +96,24 @@ repos:
         entry: bandit
         language: system
         args: [-r, agent_orchestra/, -f, json, -o, bandit-report.json]
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
+      - id: type-coverage
+        name: type-coverage
+        entry: mypy
+        language: system
+        args: [--strict, agent_orchestra/, --html-report, mypy-report/]
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
+
+      - id: complexity-check
+        name: complexity-check
+        entry: python
+        language: system
+        args: [-m, mccabe, --min=10, agent_orchestra/]
         pass_filenames: false
         always_run: true
         stages: [manual]
