@@ -21,6 +21,8 @@ myst-parser>=0.18.0
 pre-commit>=3.0.0
 tox>=4.0.0
 bandit>=1.7.0
+safety>=3.0.0
+semgrep>=1.45.0
 
 # Jupyter for examples and analysis
 jupyter>=1.0.0
