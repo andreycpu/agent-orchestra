@@ -1,152 +1,270 @@
-# Makefile for Agent Orchestra
+# Makefile for Agent Orchestra - Production-Ready Development Automation
 
-.PHONY: help install install-dev test lint format clean build docker docs
+.DEFAULT_GOAL := help
+.PHONY: help install dev-install test lint format clean docs build security performance
 
-# Default target
-help:
-	@echo "Agent Orchestra - Make targets:"
-	@echo "  help          Show this help message"
-	@echo "  install       Install the package"
-	@echo "  install-dev   Install in development mode with dev dependencies"
-	@echo "  test          Run tests"
-	@echo "  lint          Run linting checks"
-	@echo "  format        Format code"
-	@echo "  clean         Clean build artifacts"
-	@echo "  build         Build package"
-	@echo "  docker        Build Docker images"
-	@echo "  docs          Generate documentation"
-	@echo "  benchmark     Run performance benchmarks"
-	@echo "  setup         Setup development environment"
+# Colors for output
+CYAN := \033[36m
+GREEN := \033[32m
+YELLOW := \033[33m
+RED := \033[31m
+RESET := \033[0m
 
-# Installation targets
-install:
-	pip install -e .
+# Project variables
+PROJECT_NAME := agent-orchestra
+PYTHON := python3
+PIP := pip3
+DOCKER_IMAGE := agent-orchestra
+VERSION := $(shell grep '^__version__' agent_orchestra/__init__.py | cut -d'"' -f2)
 
-install-dev:
-	pip install -e .
-	pip install -r requirements-dev.txt
+##@ General
+help: ## Display this help message
+	@echo "$(CYAN)$(PROJECT_NAME) v$(VERSION) - Development Automation$(RESET)"
+	@echo ""
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  $(CYAN)%-20s$(RESET) %s\n", $$1, $$2 } /^##@/ { printf "\n$(YELLOW)%s$(RESET)\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
-# Testing targets
-test:
-	pytest tests/ -v --cov=agent_orchestra --cov-report=html --cov-report=term
+check-python: ## Check Python version
+	@$(PYTHON) --version | grep -E "3\.(8|9|10|11|12)" > /dev/null || (echo "$(RED)Python 3.8+ required$(RESET)" && exit 1)
 
-test-fast:
-	pytest tests/ -x --ff
+##@ Installation
+install: check-python ## Install the package for production
+	@echo "$(GREEN)Installing $(PROJECT_NAME)...$(RESET)"
+	$(PIP) install -e .
 
-test-integration:
-	pytest tests/integration/ -v
+dev-install: check-python ## Install development dependencies
+	@echo "$(GREEN)Installing development environment...$(RESET)"
+	$(PIP) install -e ".[dev]"
+	$(PIP) install -r requirements-dev.txt
+	@$(MAKE) pre-commit-install
 
-# Code quality targets
-lint:
-	flake8 agent_orchestra tests examples
-	mypy agent_orchestra --ignore-missing-imports
-	bandit -r agent_orchestra
+upgrade-deps: ## Upgrade all dependencies
+	@echo "$(GREEN)Upgrading dependencies...$(RESET)"
+	$(PIP) install --upgrade pip setuptools wheel
+	$(PIP) install --upgrade -r requirements.txt
+	$(PIP) install --upgrade -r requirements-dev.txt
 
-format:
-	black agent_orchestra tests examples
-	isort agent_orchestra tests examples
+##@ Testing
+test: ## Run unit tests
+	@echo "$(GREEN)Running unit tests...$(RESET)"
+	pytest tests/ -v --tb=short -x
 
-check-format:
-	black --check agent_orchestra tests examples
-	isort --check-only agent_orchestra tests examples
+test-all: ## Run all tests (unit + integration)
+	@echo "$(GREEN)Running all tests...$(RESET)"
+	pytest tests/ -v --tb=short
 
-# Build targets
-clean:
+test-cov: ## Run tests with coverage report
+	@echo "$(GREEN)Running tests with coverage...$(RESET)"
+	pytest tests/ -v --cov=agent_orchestra --cov-report=html --cov-report=term --cov-fail-under=80
+
+test-integration: ## Run integration tests only
+	@echo "$(GREEN)Running integration tests...$(RESET)"
+	pytest tests/integration/ -v -m integration
+
+test-performance: ## Run performance tests
+	@echo "$(GREEN)Running performance tests...$(RESET)"
+	pytest tests/performance/ -v --benchmark-only
+
+test-watch: ## Run tests in watch mode
+	@echo "$(GREEN)Running tests in watch mode...$(RESET)"
+	pytest-watch tests/ -- -v --tb=short
+
+##@ Code Quality
+lint: ## Run all linting checks
+	@echo "$(GREEN)Running linting checks...$(RESET)"
+	flake8 agent_orchestra tests examples --max-line-length=88 --extend-ignore=E203,W503
+	mypy agent_orchestra --ignore-missing-imports --strict
+	bandit -r agent_orchestra -f json -o reports/bandit.json || true
+	safety check || true
+
+format: ## Format code with black and isort
+	@echo "$(GREEN)Formatting code...$(RESET)"
+	black agent_orchestra tests examples --line-length=88
+	isort agent_orchestra tests examples --profile=black
+
+format-check: ## Check code formatting
+	@echo "$(GREEN)Checking code formatting...$(RESET)"
+	black --check agent_orchestra tests examples --line-length=88
+	isort --check-only agent_orchestra tests examples --profile=black
+
+type-check: ## Run type checking
+	@echo "$(GREEN)Running type checks...$(RESET)"
+	mypy agent_orchestra --ignore-missing-imports --html-report reports/mypy/
+
+complexity-check: ## Check code complexity
+	@echo "$(GREEN)Checking code complexity...$(RESET)"
+	mccabe --min=10 agent_orchestra/
+
+quality: lint format-check type-check complexity-check ## Run all code quality checks
+
+##@ Security
+security: ## Run security scans
+	@echo "$(GREEN)Running security scans...$(RESET)"
+	@mkdir -p reports
+	safety check --json --output reports/safety.json || true
+	bandit -r agent_orchestra -f json -o reports/bandit.json || true
+	semgrep --config=auto --json --output=reports/semgrep.json agent_orchestra/ || true
+	@echo "$(YELLOW)Security reports saved to reports/$(RESET)"
+
+audit-dependencies: ## Audit Python dependencies for vulnerabilities
+	@echo "$(GREEN)Auditing dependencies...$(RESET)"
+	pip-audit --format=json --output=reports/pip-audit.json
+
+##@ Performance
+benchmark: ## Run performance benchmarks
+	@echo "$(GREEN)Running benchmarks...$(RESET)"
+	$(PYTHON) examples/benchmark.py
+
+profile: ## Profile application performance
+	@echo "$(GREEN)Profiling application...$(RESET)"
+	$(PYTHON) -m cProfile -o reports/profile.stats examples/stress_test.py
+	$(PYTHON) -c "import pstats; pstats.Stats('reports/profile.stats').sort_stats('cumulative').print_stats(20)"
+
+memory-profile: ## Profile memory usage
+	@echo "$(GREEN)Profiling memory usage...$(RESET)"
+	mprof run examples/stress_test.py
+	mprof plot -o reports/memory-profile.png
+
+##@ Documentation
+docs: ## Build documentation
+	@echo "$(GREEN)Building documentation...$(RESET)"
+	@mkdir -p docs/_build
+	cd docs && $(MAKE) html
+
+docs-serve: ## Serve documentation locally
+	@echo "$(GREEN)Serving documentation at http://localhost:8000$(RESET)"
+	cd docs/_build/html && $(PYTHON) -m http.server 8000
+
+docs-clean: ## Clean documentation build
+	cd docs && $(MAKE) clean
+
+api-docs: ## Generate API documentation
+	@echo "$(GREEN)Generating API documentation...$(RESET)"
+	pdoc --html --output-dir docs/api agent_orchestra
+
+##@ Build & Package
+clean: ## Clean build artifacts
+	@echo "$(GREEN)Cleaning build artifacts...$(RESET)"
 	rm -rf build/
 	rm -rf dist/
 	rm -rf *.egg-info/
 	rm -rf .pytest_cache/
 	rm -rf .coverage
 	rm -rf htmlcov/
-	find . -type d -name __pycache__ -exec rm -rf {} +
+	rm -rf reports/
+	rm -rf .mypy_cache/
+	find . -type d -name __pycache__ -delete
 	find . -type f -name "*.pyc" -delete
+	find . -type f -name "*.pyo" -delete
 
-build: clean
-	python -m build
+build: clean ## Build distribution packages
+	@echo "$(GREEN)Building distribution packages...$(RESET)"
+	$(PYTHON) -m build
 
-# Docker targets
-docker:
-	docker build -t agent-orchestra:latest .
+build-check: build ## Check built packages
+	@echo "$(GREEN)Checking built packages...$(RESET)"
+	twine check dist/*
 
-docker-dev:
-	docker build --target development -t agent-orchestra:dev .
+##@ Docker
+docker-build: ## Build Docker image
+	@echo "$(GREEN)Building Docker image...$(RESET)"
+	docker build -t $(DOCKER_IMAGE):latest .
 
-docker-compose-up:
-	docker-compose up -d
+docker-dev: ## Build development Docker image
+	@echo "$(GREEN)Building development Docker image...$(RESET)"
+	docker build --target development -t $(DOCKER_IMAGE):dev .
 
-docker-compose-down:
-	docker-compose down
+docker-test: ## Build and run test Docker image
+	@echo "$(GREEN)Building and testing Docker image...$(RESET)"
+	docker build --target testing -t $(DOCKER_IMAGE):test .
 
-# Documentation targets
-docs:
-	cd docs && make html
+docker-run: ## Run Docker container
+	@echo "$(GREEN)Running Docker container...$(RESET)"
+	docker run -p 8080:8080 $(DOCKER_IMAGE):latest
 
-docs-serve:
-	cd docs && python -m http.server 8000
+docker-clean: ## Clean Docker images
+	docker rmi $(DOCKER_IMAGE):latest $(DOCKER_IMAGE):dev $(DOCKER_IMAGE):test 2>/dev/null || true
 
-# Performance targets
-benchmark:
-	python examples/benchmark.py
+##@ Release
+release-check: build-check test-all security ## Check release readiness
+	@echo "$(GREEN)Release readiness check completed$(RESET)"
 
-profile:
-	python -m cProfile -o profile.stats examples/basic_usage.py
-	python -c "import pstats; pstats.Stats('profile.stats').sort_stats('cumulative').print_stats(20)"
+release-test: build ## Release to test PyPI
+	@echo "$(YELLOW)Uploading to test PyPI...$(RESET)"
+	twine upload --repository testpypi dist/*
 
-# Development setup
-setup:
-	chmod +x scripts/setup.sh
-	./scripts/setup.sh
+release: build ## Release to production PyPI
+	@echo "$(RED)Uploading to production PyPI...$(RESET)"
+	@read -p "Are you sure you want to release v$(VERSION)? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		twine upload dist/*; \
+	else \
+		echo "$(YELLOW)Release cancelled$(RESET)"; \
+	fi
 
-# Database/Redis targets
-redis-start:
-	docker run -d --name agent-orchestra-redis -p 6379:6379 redis:7-alpine
+tag: ## Create and push git tag
+	@echo "$(GREEN)Creating git tag v$(VERSION)...$(RESET)"
+	git tag -a v$(VERSION) -m "Release v$(VERSION)"
+	git push origin v$(VERSION)
 
-redis-stop:
-	docker stop agent-orchestra-redis && docker rm agent-orchestra-redis
+##@ Development Tools
+pre-commit-install: ## Install pre-commit hooks
+	@echo "$(GREEN)Installing pre-commit hooks...$(RESET)"
+	pre-commit install
 
-# Configuration targets
-config-validate:
-	python -m agent_orchestra.cli config validate config/sample.yaml
+pre-commit-run: ## Run pre-commit hooks on all files
+	@echo "$(GREEN)Running pre-commit hooks...$(RESET)"
+	pre-commit run --all-files
 
-config-generate:
-	python -m agent_orchestra.cli config generate config/generated.yaml
+setup-dev: dev-install pre-commit-install ## Complete development environment setup
+	@echo "$(GREEN)Development environment setup complete!$(RESET)"
 
-# Examples targets
-example-basic:
-	python examples/basic_usage.py
+env-info: ## Show environment information
+	@echo "$(CYAN)Environment Information:$(RESET)"
+	@echo "Python version: $(shell $(PYTHON) --version)"
+	@echo "Pip version: $(shell $(PIP) --version)"
+	@echo "Project version: $(VERSION)"
+	@echo "Docker version: $(shell docker --version 2>/dev/null || echo 'Not installed')"
 
-example-parallel:
-	python examples/parallel_execution.py
+##@ CI/CD
+ci-test: ## Run CI pipeline tests
+	@echo "$(GREEN)Running CI pipeline tests...$(RESET)"
+	@$(MAKE) clean
+	@$(MAKE) dev-install
+	@$(MAKE) quality
+	@$(MAKE) test-cov
+	@$(MAKE) security
+	@$(MAKE) build-check
 
-example-worker:
-	python examples/agent_worker.py --agent-id example-worker --capabilities text_processing math_processing
+validate-config: ## Validate configuration files
+	@echo "$(GREEN)Validating configuration files...$(RESET)"
+	$(PYTHON) -m agent_orchestra.cli config validate config/schema.yaml
 
-# Monitoring targets
-metrics-export:
-	python -m agent_orchestra.cli export metrics --format prometheus --output metrics.txt
+##@ Monitoring
+health-check: ## Run health checks
+	@echo "$(GREEN)Running health checks...$(RESET)"
+	$(PYTHON) -m agent_orchestra.cli health check
 
-dashboard-start:
-	python -m agent_orchestra.cli monitor --continuous
+metrics: ## Show system metrics
+	@echo "$(GREEN)Collecting metrics...$(RESET)"
+	$(PYTHON) -m agent_orchestra.cli metrics
 
-# Release targets
-release-check: clean lint test
-	@echo "Release checks passed"
+##@ Examples
+run-quickstart: ## Run quickstart example
+	@echo "$(GREEN)Running quickstart example...$(RESET)"
+	$(PYTHON) examples/quickstart.py
 
-release-build: release-check build
-	@echo "Release build complete"
+run-production: ## Run production example
+	@echo "$(GREEN)Running production example...$(RESET)"
+	$(PYTHON) examples/production_example.py
 
-# Git targets
-git-tag:
-	@read -p "Enter version tag: " tag; \
-	git tag -a $$tag -m "Release $$tag" && \
-	git push origin $$tag
+##@ Utilities
+version: ## Show version information
+	@echo "$(CYAN)$(PROJECT_NAME) v$(VERSION)$(RESET)"
 
-# All-in-one targets
-dev-setup: install-dev setup
-	@echo "Development environment ready"
-
-ci: install-dev lint test
-	@echo "CI pipeline complete"
-
-full-test: clean install-dev lint test benchmark
-	@echo "Full test suite complete"
+update-version: ## Update version (requires VERSION=x.x.x)
+ifndef VERSION
+	$(error VERSION is required. Use: make update-version VERSION=1.2.3)
+endif
+	@echo "$(GREEN)Updating version to $(VERSION)...$(RESET)"
+	sed -i 's/__version__ = "[^"]*"/__version__ = "$(VERSION)"/' agent_orchestra/__init__.py
