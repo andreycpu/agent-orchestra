@@ -1,0 +1,525 @@
+# Configuration schema for Agent Orchestra
+# This file defines the structure and validation rules for configuration files
+
+$schema: "http://json-schema.org/draft-07/schema#"
+title: "Agent Orchestra Configuration Schema"
+description: "Schema for validating Agent Orchestra configuration files"
+type: "object"
+
+properties:
+  version:
+    type: "string"
+    description: "Configuration version"
+    pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    examples: ["1.0.0"]
+
+  environment:
+    type: "string"
+    description: "Deployment environment"
+    enum: ["development", "testing", "staging", "production"]
+    default: "production"
+
+  orchestra:
+    type: "object"
+    description: "Core orchestration settings"
+    properties:
+      max_concurrent_tasks:
+        type: "integer"
+        minimum: 1
+        maximum: 10000
+        default: 100
+        description: "Maximum number of concurrent tasks"
+      
+      task_timeout_default:
+        type: "integer"
+        minimum: 1
+        maximum: 86400
+        default: 300
+        description: "Default task timeout in seconds"
+      
+      heartbeat_interval:
+        type: "integer"
+        minimum: 1
+        maximum: 300
+        default: 30
+        description: "Agent heartbeat interval in seconds"
+      
+      enable_task_retries:
+        type: "boolean"
+        default: true
+        description: "Enable automatic task retries"
+      
+      max_retry_attempts:
+        type: "integer"
+        minimum: 0
+        maximum: 10
+        default: 3
+        description: "Maximum retry attempts per task"
+      
+      circuit_breaker:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: true
+          failure_threshold:
+            type: "integer"
+            minimum: 1
+            maximum: 100
+            default: 5
+          timeout_seconds:
+            type: "integer"
+            minimum: 1
+            maximum: 3600
+            default: 60
+        required: ["enabled"]
+    
+    required: ["max_concurrent_tasks", "task_timeout_default", "heartbeat_interval"]
+
+  redis:
+    type: "object"
+    description: "Redis configuration for state management"
+    properties:
+      url:
+        type: "string"
+        pattern: "^redis://.+"
+        description: "Redis connection URL"
+        examples: ["redis://localhost:6379/0"]
+      
+      max_connections:
+        type: "integer"
+        minimum: 1
+        maximum: 1000
+        default: 50
+        description: "Maximum Redis connection pool size"
+      
+      socket_timeout:
+        type: "number"
+        minimum: 0.1
+        maximum: 60.0
+        default: 5.0
+        description: "Socket timeout in seconds"
+      
+      retry_on_timeout:
+        type: "boolean"
+        default: true
+        description: "Retry operations on timeout"
+      
+      ssl:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: false
+          cert_reqs:
+            type: "string"
+            enum: ["none", "optional", "required"]
+            default: "required"
+          ca_certs:
+            type: "string"
+            description: "Path to CA certificate file"
+          certfile:
+            type: "string"
+            description: "Path to client certificate file"
+          keyfile:
+            type: "string"
+            description: "Path to client private key file"
+        required: ["enabled"]
+    
+    required: ["url"]
+
+  security:
+    type: "object"
+    description: "Security and authentication settings"
+    properties:
+      jwt:
+        type: "object"
+        properties:
+          secret:
+            type: "string"
+            minLength: 32
+            description: "JWT signing secret (minimum 32 characters)"
+          
+          expiry_hours:
+            type: "integer"
+            minimum: 1
+            maximum: 168
+            default: 24
+            description: "JWT token expiry time in hours"
+          
+          issuer:
+            type: "string"
+            default: "agent-orchestra"
+            description: "JWT issuer claim"
+          
+          audience:
+            type: "string"
+            default: "agent-orchestra-api"
+            description: "JWT audience claim"
+        
+        required: ["secret"]
+      
+      authentication:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: true
+          
+          require_2fa:
+            type: "boolean"
+            default: false
+            description: "Require two-factor authentication"
+          
+          session_timeout:
+            type: "integer"
+            minimum: 300
+            maximum: 86400
+            default: 3600
+            description: "Session timeout in seconds"
+        
+        required: ["enabled"]
+      
+      rate_limiting:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: true
+          
+          requests_per_minute:
+            type: "integer"
+            minimum: 1
+            maximum: 10000
+            default: 100
+            description: "Requests per minute per user"
+          
+          burst_size:
+            type: "integer"
+            minimum: 1
+            maximum: 1000
+            default: 20
+            description: "Burst capacity"
+        
+        required: ["enabled"]
+      
+      cors:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: true
+          
+          allowed_origins:
+            type: "array"
+            items:
+              type: "string"
+            default: ["*"]
+            description: "Allowed CORS origins"
+          
+          allowed_methods:
+            type: "array"
+            items:
+              type: "string"
+              enum: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+            default: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+          
+          allowed_headers:
+            type: "array"
+            items:
+              type: "string"
+            default: ["Authorization", "Content-Type", "X-Requested-With"]
+        
+        required: ["enabled"]
+    
+    required: ["jwt", "authentication"]
+
+  monitoring:
+    type: "object"
+    description: "Monitoring and observability settings"
+    properties:
+      enabled:
+        type: "boolean"
+        default: true
+        description: "Enable monitoring"
+      
+      metrics:
+        type: "object"
+        properties:
+          prometheus:
+            type: "object"
+            properties:
+              enabled:
+                type: "boolean"
+                default: true
+              port:
+                type: "integer"
+                minimum: 1024
+                maximum: 65535
+                default: 9090
+              path:
+                type: "string"
+                pattern: "^/.*"
+                default: "/metrics"
+            required: ["enabled"]
+          
+          custom_metrics:
+            type: "array"
+            items:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                  pattern: "^[a-zA-Z_:][a-zA-Z0-9_:]*$"
+                type:
+                  type: "string"
+                  enum: ["counter", "gauge", "histogram", "summary"]
+                description:
+                  type: "string"
+                labels:
+                  type: "array"
+                  items:
+                    type: "string"
+              required: ["name", "type"]
+        
+        required: ["prometheus"]
+      
+      logging:
+        type: "object"
+        properties:
+          level:
+            type: "string"
+            enum: ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+            default: "INFO"
+          
+          format:
+            type: "string"
+            enum: ["json", "console"]
+            default: "json"
+          
+          structured:
+            type: "boolean"
+            default: true
+            description: "Use structured logging"
+          
+          file:
+            type: "object"
+            properties:
+              enabled:
+                type: "boolean"
+                default: false
+              path:
+                type: "string"
+                description: "Log file path"
+              max_size_mb:
+                type: "integer"
+                minimum: 1
+                maximum: 1024
+                default: 100
+              backup_count:
+                type: "integer"
+                minimum: 0
+                maximum: 100
+                default: 5
+            required: ["enabled"]
+        
+        required: ["level", "format"]
+      
+      health_checks:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: true
+          
+          interval:
+            type: "integer"
+            minimum: 5
+            maximum: 300
+            default: 30
+            description: "Health check interval in seconds"
+          
+          timeout:
+            type: "integer"
+            minimum: 1
+            maximum: 60
+            default: 5
+            description: "Health check timeout in seconds"
+          
+          endpoints:
+            type: "array"
+            items:
+              type: "object"
+              properties:
+                name:
+                  type: "string"
+                url:
+                  type: "string"
+                  format: "uri"
+                method:
+                  type: "string"
+                  enum: ["GET", "POST", "HEAD"]
+                  default: "GET"
+                expected_status:
+                  type: "integer"
+                  minimum: 100
+                  maximum: 599
+                  default: 200
+              required: ["name", "url"]
+        
+        required: ["enabled"]
+    
+    required: ["enabled", "metrics", "logging"]
+
+  agents:
+    type: "object"
+    description: "Agent configuration"
+    properties:
+      discovery:
+        type: "object"
+        properties:
+          enabled:
+            type: "boolean"
+            default: true
+          
+          method:
+            type: "string"
+            enum: ["static", "dns", "consul", "kubernetes"]
+            default: "static"
+          
+          interval:
+            type: "integer"
+            minimum: 5
+            maximum: 300
+            default: 30
+            description: "Discovery interval in seconds"
+        
+        required: ["enabled", "method"]
+      
+      defaults:
+        type: "object"
+        properties:
+          max_concurrent_tasks:
+            type: "integer"
+            minimum: 1
+            maximum: 100
+            default: 10
+          
+          timeout:
+            type: "integer"
+            minimum: 1
+            maximum: 3600
+            default: 300
+          
+          retry_attempts:
+            type: "integer"
+            minimum: 0
+            maximum: 10
+            default: 3
+        
+        required: ["max_concurrent_tasks"]
+      
+      predefined:
+        type: "array"
+        description: "Predefined agent configurations"
+        items:
+          type: "object"
+          properties:
+            id:
+              type: "string"
+              pattern: "^[a-zA-Z0-9_-]+$"
+            
+            name:
+              type: "string"
+              minLength: 1
+              maxLength: 100
+            
+            capabilities:
+              type: "array"
+              items:
+                type: "string"
+              minItems: 1
+            
+            endpoint:
+              type: "string"
+              format: "uri"
+            
+            metadata:
+              type: "object"
+              additionalProperties: true
+          
+          required: ["id", "name", "capabilities"]
+    
+    required: ["discovery", "defaults"]
+
+required:
+  - "version"
+  - "environment"
+  - "orchestra"
+  - "redis"
+  - "security"
+  - "monitoring"
+  - "agents"
+
+additionalProperties: false
+
+# Example valid configuration
+examples:
+  - version: "1.0.0"
+    environment: "production"
+    orchestra:
+      max_concurrent_tasks: 100
+      task_timeout_default: 300
+      heartbeat_interval: 30
+      enable_task_retries: true
+      max_retry_attempts: 3
+      circuit_breaker:
+        enabled: true
+        failure_threshold: 5
+        timeout_seconds: 60
+    redis:
+      url: "redis://localhost:6379/0"
+      max_connections: 50
+      socket_timeout: 5.0
+      retry_on_timeout: true
+    security:
+      jwt:
+        secret: "your-very-secure-32-character-secret"
+        expiry_hours: 24
+        issuer: "agent-orchestra"
+        audience: "agent-orchestra-api"
+      authentication:
+        enabled: true
+        require_2fa: false
+        session_timeout: 3600
+      rate_limiting:
+        enabled: true
+        requests_per_minute: 100
+        burst_size: 20
+      cors:
+        enabled: true
+        allowed_origins: ["*"]
+    monitoring:
+      enabled: true
+      metrics:
+        prometheus:
+          enabled: true
+          port: 9090
+          path: "/metrics"
+      logging:
+        level: "INFO"
+        format: "json"
+        structured: true
+      health_checks:
+        enabled: true
+        interval: 30
+        timeout: 5
+    agents:
+      discovery:
+        enabled: true
+        method: "static"
+        interval: 30
+      defaults:
+        max_concurrent_tasks: 10
+        timeout: 300
+        retry_attempts: 3
