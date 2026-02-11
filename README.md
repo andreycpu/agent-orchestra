@@ -19,21 +19,40 @@ pip install -e .
 
 ## Quick Start
 
+```bash
+pip install agent-orchestra
+```
+
 ```python
+import asyncio
 from agent_orchestra import Orchestra, Agent
 
-# Create an orchestra
-orchestra = Orchestra()
+async def text_processor(data):
+    return {"processed": data["text"].upper()}
 
-# Register agents
-orchestra.register_agent(Agent("worker-1", capabilities=["text_processing"]))
-orchestra.register_agent(Agent("worker-2", capabilities=["image_processing"]))
+async def main():
+    # Create an orchestra
+    orchestra = Orchestra()
+    
+    # Create and register agents
+    agent = Agent("worker-1", capabilities=["text_processing"])
+    agent.register_task_handler("text_processing", text_processor)
+    orchestra.register_agent(agent)
+    
+    await orchestra.start()
+    
+    # Execute a task
+    task_id = await orchestra.submit_task({
+        "type": "text_processing",
+        "data": {"text": "Hello, World!"}
+    })
+    
+    result = await orchestra.wait_for_task(task_id)
+    print(result.result)  # {"processed": "HELLO, WORLD!"}
+    
+    await orchestra.stop()
 
-# Execute a task
-result = await orchestra.execute_task({
-    "type": "text_processing",
-    "data": "Hello, World!"
-})
+asyncio.run(main())
 ```
 
 ## Architecture
