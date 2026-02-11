@@ -1,136 +1,394 @@
-# Sample configuration for Agent Orchestra
+# Agent Orchestra Sample Configuration
+# This is a comprehensive example configuration file showing all available options
+# Copy this to your desired location and modify according to your needs
 
+# Configuration version for compatibility checking
+version: "1.0.0"
+
+# Deployment environment (development, testing, staging, production)
+environment: "development"
+
+# Core orchestration settings
 orchestra:
-  # Maximum number of concurrent tasks
+  # Maximum number of tasks that can run concurrently
   max_concurrent_tasks: 100
   
-  # Default task timeout in seconds
+  # Default timeout for tasks in seconds
   task_timeout_default: 300
   
-  # Heartbeat interval in seconds
+  # How often agents should send heartbeat signals (seconds)
   heartbeat_interval: 30
   
-  # Logging configuration
-  log_level: "INFO"
+  # Enable automatic retries for failed tasks
+  enable_task_retries: true
   
-  # Enable metrics collection
-  metrics_enabled: true
+  # Maximum number of retry attempts per task
+  max_retry_attempts: 3
   
-  # Enable monitoring dashboard
-  monitoring_enabled: true
-  
-  # Failure handling
-  failure_retry_attempts: 3
-  circuit_breaker_threshold: 5
-  circuit_breaker_timeout: 300
+  # Circuit breaker configuration for reliability
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5      # Number of failures before opening circuit
+    timeout_seconds: 60       # How long circuit stays open
+    success_threshold: 3      # Successes needed to close circuit
 
-# Redis configuration for state persistence
+# Redis configuration for state management and message passing
 redis:
-  # Redis connection URL (optional - overrides other settings)
-  # url: "redis://localhost:6379/0"
-  
-  # Redis host and port
-  host: "localhost"
-  port: 6379
-  db: 0
-  
-  # Redis password (optional)
-  # password: "your-redis-password"
+  # Redis connection URL
+  url: "redis://localhost:6379/0"
   
   # Connection pool settings
-  max_connections: 10
+  max_connections: 50
+  socket_timeout: 5.0
+  socket_connect_timeout: 5.0
   retry_on_timeout: true
+  
+  # SSL configuration (optional)
+  ssl:
+    enabled: false
+    cert_reqs: "required"     # none, optional, required
+    ca_certs: null            # Path to CA certificate file
+    certfile: null            # Path to client certificate file
+    keyfile: null             # Path to client private key file
 
-# Monitoring and observability
+# Security configuration
+security:
+  # JWT token configuration
+  jwt:
+    # Secret key for signing JWT tokens (must be at least 32 characters)
+    secret: "your-very-secure-32-character-secret-key-here"
+    expiry_hours: 24
+    issuer: "agent-orchestra"
+    audience: "agent-orchestra-api"
+  
+  # Authentication settings
+  authentication:
+    enabled: true
+    require_2fa: false
+    session_timeout: 3600     # Session timeout in seconds
+  
+  # Rate limiting configuration
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100  # Requests per minute per user
+    burst_size: 20            # Burst capacity
+    
+    # Different limits for different endpoints
+    endpoints:
+      "/api/tasks": 200
+      "/api/agents": 50
+      "/api/metrics": 1000
+  
+  # CORS configuration
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+      - "https://your-frontend-domain.com"
+    allowed_methods:
+      - "GET"
+      - "POST" 
+      - "PUT"
+      - "DELETE"
+      - "PATCH"
+      - "OPTIONS"
+    allowed_headers:
+      - "Authorization"
+      - "Content-Type"
+      - "X-Requested-With"
+      - "X-API-Key"
+
+# Monitoring and observability configuration
 monitoring:
   enabled: true
   
-  # Port for metrics HTTP server
-  metrics_port: 8080
+  # Metrics collection and export
+  metrics:
+    # Prometheus metrics endpoint
+    prometheus:
+      enabled: true
+      port: 9090
+      path: "/metrics"
+      # Additional labels to add to all metrics
+      labels:
+        environment: "development"
+        service: "agent-orchestra"
+    
+    # Custom metrics definitions
+    custom_metrics:
+      - name: "custom_task_duration"
+        type: "histogram"
+        description: "Custom task execution duration"
+        labels: ["task_type", "agent_id"]
   
-  # Enable web dashboard
-  dashboard_enabled: true
+  # Logging configuration
+  logging:
+    level: "INFO"             # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    format: "json"            # json or console
+    structured: true
+    include_caller_info: true
+    
+    # File logging (optional)
+    file:
+      enabled: false
+      path: "/var/log/agent-orchestra/app.log"
+      max_size_mb: 100
+      backup_count: 5
+      rotation: "time"        # time or size
+      rotation_interval: "midnight"
   
-  # Metrics export interval in seconds
-  export_interval: 60
+  # Health check configuration
+  health_checks:
+    enabled: true
+    interval: 30              # Health check interval in seconds
+    timeout: 5                # Health check timeout in seconds
+    
+    # External endpoints to check
+    endpoints:
+      - name: "database"
+        url: "http://localhost:5432/health"
+        method: "GET"
+        expected_status: 200
+        timeout: 3
+      
+      - name: "external_service"
+        url: "https://api.external-service.com/ping"
+        method: "GET"
+        expected_status: 200
+        timeout: 5
   
-  # How long to keep historical data (days)
-  history_retention_days: 7
-  
-  # Alert thresholds
-  alert_thresholds:
-    error_rate: 0.1          # 10% error rate
-    cpu_usage: 90.0          # 90% CPU usage
-    memory_usage: 90.0       # 90% memory usage
-    task_timeout_rate: 0.05  # 5% timeout rate
+  # Performance monitoring
+  performance:
+    enabled: true
+    profiling_enabled: false  # Enable detailed profiling (impacts performance)
+    sampling_rate: 0.1        # Fraction of requests to profile
+    
+    # Performance thresholds for alerting
+    thresholds:
+      task_execution_time: 30.0    # seconds
+      memory_usage_percent: 85.0
+      cpu_usage_percent: 80.0
 
-# Logging configuration
-logging:
-  level: "INFO"
-  format: "json"  # or "text"
-  
-  # Optional log file (if not specified, logs go to stdout)
-  # file_path: "/var/log/agent-orchestra.log"
-  
-  # Log file rotation
-  max_file_size: "100MB"
-  backup_count: 5
-  
-  # Use structured logging
-  structured: true
-
-# Pre-configured agents (optional)
+# Agent configuration
 agents:
-  - id: "text-processor-1"
-    name: "Text Processing Agent"
-    capabilities:
-      - "text_processing"
-      - "content_analysis"
-    max_concurrent_tasks: 5
-    metadata:
-      region: "us-west-2"
-      instance_type: "standard"
+  # Agent discovery configuration
+  discovery:
+    enabled: true
+    method: "static"          # static, dns, consul, kubernetes
+    interval: 30              # Discovery interval in seconds
+    
+    # Service discovery specific settings
+    dns:
+      domain: "agents.local"
+      port: 8080
+    
+    consul:
+      host: "localhost"
+      port: 8500
+      service_name: "agent-orchestra-agent"
+    
+    kubernetes:
+      namespace: "default"
+      label_selector: "app=agent-orchestra-agent"
   
-  - id: "data-processor-1"
-    name: "Data Processing Agent"
-    capabilities:
-      - "data_processing"
-      - "data_validation"
-      - "data_transformation"
+  # Default settings for all agents
+  defaults:
     max_concurrent_tasks: 10
-    resource_limits:
-      memory: "2GB"
-      cpu: "2 cores"
-    metadata:
-      region: "us-west-2"
-      instance_type: "compute-optimized"
+    timeout: 300
+    retry_attempts: 3
+    
+    # Resource limits
+    resources:
+      memory_mb: 512
+      cpu_cores: 1.0
   
-  - id: "math-processor-1"
-    name: "Mathematical Computing Agent"
-    capabilities:
-      - "math_processing"
-      - "statistical_analysis"
-      - "numerical_computation"
-    max_concurrent_tasks: 3
-    resource_limits:
-      memory: "4GB"
-      cpu: "4 cores"
-    metadata:
-      region: "us-east-1"
-      instance_type: "memory-optimized"
+  # Pre-configured agents (optional)
+  predefined:
+    - id: "text_processor_1"
+      name: "Text Processing Agent"
+      capabilities:
+        - "text_analysis"
+        - "summarization"
+        - "translation"
+      endpoint: "http://localhost:8081"
+      metadata:
+        version: "1.0.0"
+        region: "us-east-1"
+    
+    - id: "data_processor_1"
+      name: "Data Processing Agent"
+      capabilities:
+        - "data_validation"
+        - "data_transformation"
+        - "data_enrichment"
+      endpoint: "http://localhost:8082"
+      metadata:
+        version: "1.0.0"
+        region: "us-east-1"
+
+# Database configuration (optional)
+database:
+  # Primary database for persistent storage
+  url: "postgresql://user:password@localhost:5432/agent_orchestra"
   
-  - id: "ml-processor-1"
-    name: "Machine Learning Agent"
-    capabilities:
-      - "model_inference"
-      - "data_preprocessing"
-      - "feature_extraction"
-    max_concurrent_tasks: 2
-    resource_limits:
-      memory: "8GB"
-      cpu: "8 cores"
-      gpu: "1 x NVIDIA T4"
-    metadata:
-      region: "us-west-2"
-      instance_type: "gpu-optimized"
-      specialization: "deep-learning"
+  # Connection pool settings
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+  pool_recycle: 3600
+  
+  # Migration settings
+  auto_migrate: false
+  migration_timeout: 300
+
+# Message queue configuration (optional, for advanced setups)
+message_queue:
+  # Type of message queue (redis, rabbitmq, kafka)
+  type: "redis"
+  
+  # Redis message queue settings
+  redis:
+    url: "redis://localhost:6379/1"
+    stream_maxlen: 10000
+  
+  # RabbitMQ settings
+  rabbitmq:
+    url: "amqp://guest:guest@localhost:5672/"
+    exchange: "agent_orchestra"
+    queue: "tasks"
+  
+  # Kafka settings
+  kafka:
+    bootstrap_servers:
+      - "localhost:9092"
+    topic: "agent_orchestra_tasks"
+    consumer_group: "orchestra_workers"
+
+# External integrations
+integrations:
+  # Webhook configurations
+  webhooks:
+    enabled: true
+    endpoints:
+      task_completed: "https://your-service.com/webhooks/task-completed"
+      task_failed: "https://your-service.com/webhooks/task-failed"
+      agent_status_changed: "https://your-service.com/webhooks/agent-status"
+    
+    # Webhook security
+    signature_secret: "webhook-secret-key"
+    timeout: 10
+    retry_attempts: 3
+  
+  # External APIs
+  apis:
+    # Example external service integration
+    external_service:
+      base_url: "https://api.example.com/v1"
+      api_key: "your-api-key"
+      timeout: 30
+      rate_limit: 100
+
+# Development and debugging
+development:
+  # Enable development features
+  debug_mode: true
+  
+  # Hot reloading for development
+  auto_reload: true
+  
+  # Development server settings
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    workers: 1
+  
+  # Testing configuration
+  testing:
+    mock_external_services: true
+    test_database_url: "sqlite:///test.db"
+    
+    # Test data fixtures
+    fixtures:
+      load_sample_agents: true
+      load_sample_tasks: true
+
+# Production-specific settings
+production:
+  # Production security hardening
+  security:
+    enforce_https: true
+    secure_cookies: true
+    csrf_protection: true
+    
+    # Content Security Policy
+    csp:
+      enabled: true
+      default_src: "'self'"
+      script_src: "'self' 'unsafe-inline'"
+  
+  # Production performance tuning
+  performance:
+    worker_processes: 4
+    worker_connections: 1000
+    keepalive_timeout: 65
+    
+    # Caching configuration
+    cache:
+      enabled: true
+      backend: "redis"
+      default_timeout: 300
+      key_prefix: "ao_cache:"
+  
+  # Production monitoring
+  monitoring:
+    # APM integration (New Relic, DataDog, etc.)
+    apm:
+      enabled: false
+      service_name: "agent-orchestra"
+      environment: "production"
+    
+    # Structured logging for production
+    logging:
+      json_logs: true
+      log_requests: true
+      log_responses: false
+      mask_sensitive_fields: true
+
+# Feature flags for gradual rollout
+features:
+  # New features that can be toggled
+  enhanced_routing: true
+  advanced_metrics: true
+  experimental_caching: false
+  new_ui_components: false
+  
+  # A/B testing configuration
+  ab_tests:
+    routing_algorithm_v2:
+      enabled: true
+      percentage: 50        # 50% of traffic gets new algorithm
+    
+    enhanced_monitoring:
+      enabled: false
+      percentage: 10
+
+# Custom extensions and plugins
+plugins:
+  enabled: true
+  
+  # Plugin directories to scan
+  directories:
+    - "plugins/"
+    - "/opt/agent-orchestra/plugins/"
+  
+  # Specific plugins to load
+  load:
+    - name: "custom_metrics_plugin"
+      enabled: true
+      config:
+        endpoint: "https://metrics.example.com"
+    
+    - name: "slack_notifications"
+      enabled: false
+      config:
+        webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
