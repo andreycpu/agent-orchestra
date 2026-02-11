@@ -1,0 +1,45 @@
+# Production configuration for Agent Orchestra
+
+orchestra:
+  max_concurrent_tasks: 100
+  task_timeout_default: 300
+  heartbeat_interval: 30
+  log_level: "INFO"
+  metrics_enabled: true
+  monitoring_enabled: true
+  failure_retry_attempts: 3
+  circuit_breaker_threshold: 5
+  circuit_breaker_timeout: 300
+
+redis:
+  host: "redis-cluster.internal"
+  port: 6379
+  db: 0
+  max_connections: 20
+  retry_on_timeout: true
+
+monitoring:
+  enabled: true
+  metrics_port: 8080
+  dashboard_enabled: false  # Use external monitoring
+  export_interval: 60
+  history_retention_days: 30
+  alert_thresholds:
+    error_rate: 0.05
+    cpu_usage: 80.0
+    memory_usage: 85.0
+    task_timeout_rate: 0.02
+
+logging:
+  level: "INFO"
+  format: "json"
+  structured: true
+  file_path: "/var/log/agent-orchestra.log"
+  max_file_size: "500MB"
+  backup_count: 10
+
+# Production security settings would be loaded from environment/secrets
+security:
+  jwt_secret: "${JWT_SECRET}"
+  session_timeout_hours: 8
+  max_login_attempts: 3
