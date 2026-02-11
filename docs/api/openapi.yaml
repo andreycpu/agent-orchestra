@@ -1,0 +1,705 @@
+openapi: 3.0.3
+info:
+  title: Agent Orchestra API
+  description: |
+    Multi-agent orchestration framework REST API.
+    
+    This API allows you to:
+    - Manage agents and their capabilities
+    - Submit and monitor tasks
+    - Query system status and metrics
+    - Configure orchestration settings
+    
+    ## Authentication
+    
+    The API uses JWT (JSON Web Token) authentication. Include the token in the Authorization header:
+    
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+    
+    ## Rate Limiting
+    
+    API endpoints are rate limited to prevent abuse. Current limits:
+    - 100 requests per minute for authenticated users
+    - 10 requests per minute for unauthenticated requests
+    
+    ## Error Handling
+    
+    The API uses standard HTTP status codes and returns error details in JSON format:
+    
+    ```json
+    {
+      "error": {
+        "code": "TASK_NOT_FOUND",
+        "message": "Task with ID 'abc123' not found",
+        "details": {}
+      }
+    }
+    ```
+  version: "1.0.0"
+  contact:
+    name: Agent Orchestra Team
+    email: team@agent-orchestra.dev
+    url: https://github.com/andreycpu/agent-orchestra
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.agent-orchestra.dev/v1
+    description: Production server
+  - url: https://staging-api.agent-orchestra.dev/v1
+    description: Staging server
+  - url: http://localhost:8000/v1
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Check if the API service is healthy and responsive
+      operationId: getHealth
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /agents:
+    get:
+      summary: List agents
+      description: Retrieve a list of all registered agents
+      operationId: listAgents
+      tags:
+        - Agents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Filter agents by status
+          schema:
+            $ref: '#/components/schemas/AgentStatus'
+        - name: capability
+          in: query
+          description: Filter agents by capability
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of agents to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of agents to skip (for pagination)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agent'
+                  total:
+                    type: integer
+                    description: Total number of agents
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      summary: Register agent
+      description: Register a new agent with the orchestra
+      operationId: registerAgent
+      tags:
+        - Agents
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRegistration'
+      responses:
+        '201':
+          description: Agent registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Agent with this ID already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /agents/{agentId}:
+    get:
+      summary: Get agent details
+      description: Retrieve detailed information about a specific agent
+      operationId: getAgent
+      tags:
+        - Agents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          description: Unique identifier of the agent
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update agent
+      description: Update agent configuration and metadata
+      operationId: updateAgent
+      tags:
+        - Agents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          description: Unique identifier of the agent
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdate'
+      responses:
+        '200':
+          description: Agent updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Agent not found
+
+    delete:
+      summary: Unregister agent
+      description: Remove an agent from the orchestra
+      operationId: unregisterAgent
+      tags:
+        - Agents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          description: Unique identifier of the agent
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Agent unregistered successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Agent not found
+
+  /tasks:
+    get:
+      summary: List tasks
+      description: Retrieve a list of tasks with optional filtering
+      operationId: listTasks
+      tags:
+        - Tasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Filter tasks by status
+          schema:
+            $ref: '#/components/schemas/TaskStatus'
+        - name: type
+          in: query
+          description: Filter tasks by type
+          schema:
+            type: string
+        - name: agent_id
+          in: query
+          description: Filter tasks by assigned agent
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+    post:
+      summary: Submit task
+      description: Submit a new task for execution
+      operationId: submitTask
+      tags:
+        - Tasks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskSubmission'
+      responses:
+        '201':
+          description: Task submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /tasks/{taskId}:
+    get:
+      summary: Get task details
+      description: Retrieve detailed information about a specific task
+      operationId: getTask
+      tags:
+        - Tasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: Unique identifier of the task
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Task not found
+
+    delete:
+      summary: Cancel task
+      description: Cancel a pending or running task
+      operationId: cancelTask
+      tags:
+        - Tasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: Unique identifier of the task
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Task cancelled successfully
+        '400':
+          description: Task cannot be cancelled in current state
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Task not found
+
+  /metrics:
+    get:
+      summary: Get system metrics
+      description: Retrieve comprehensive system performance metrics
+      operationId: getMetrics
+      tags:
+        - Monitoring
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          description: Response format
+          schema:
+            type: string
+            enum: [json, prometheus]
+            default: json
+      responses:
+        '200':
+          description: System metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemMetrics'
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus format metrics
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        uptime:
+          type: number
+          description: Service uptime in seconds
+        checks:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [pass, fail, warn]
+              message:
+                type: string
+
+    AgentStatus:
+      type: string
+      enum: [idle, busy, unavailable, error]
+
+    TaskStatus:
+      type: string
+      enum: [pending, running, completed, failed, cancelled, timeout]
+
+    TaskPriority:
+      type: string
+      enum: [low, normal, high, urgent]
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        current_task:
+          type: string
+          nullable: true
+        last_heartbeat:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    Capability:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        resource_requirements:
+          type: object
+          additionalProperties: true
+
+    AgentRegistration:
+      type: object
+      required:
+        - id
+        - name
+        - capabilities
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AgentUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        priority:
+          $ref: '#/components/schemas/TaskPriority'
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        assigned_agent:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        timeout:
+          type: integer
+          nullable: true
+        retry_count:
+          type: integer
+        max_retries:
+          type: integer
+        result:
+          type: object
+          additionalProperties: true
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        dependencies:
+          type: array
+          items:
+            type: string
+
+    TaskSubmission:
+      type: object
+      required:
+        - type
+        - data
+      properties:
+        type:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        priority:
+          $ref: '#/components/schemas/TaskPriority'
+        timeout:
+          type: integer
+        max_retries:
+          type: integer
+          minimum: 0
+          maximum: 10
+        dependencies:
+          type: array
+          items:
+            type: string
+
+    SystemMetrics:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        system:
+          type: object
+          properties:
+            uptime:
+              type: number
+            cpu_usage:
+              type: number
+            memory_usage:
+              type: number
+            disk_usage:
+              type: number
+        orchestra:
+          type: object
+          properties:
+            active_agents:
+              type: integer
+            total_agents:
+              type: integer
+            queue_depth:
+              type: integer
+            tasks_per_second:
+              type: number
+            error_rate:
+              type: number
+        performance:
+          type: object
+          properties:
+            avg_task_execution_time:
+              type: number
+            total_tasks_completed:
+              type: integer
+            total_tasks_failed:
+              type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+tags:
+  - name: System
+    description: System health and status operations
+  - name: Agents
+    description: Agent management operations
+  - name: Tasks
+    description: Task submission and monitoring
+  - name: Monitoring
+    description: Metrics and monitoring operations
