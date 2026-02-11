@@ -1,0 +1,100 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Documentation
+docs/_build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Local config
+config/local/
+
+# Logs and data
+logs/
+data/
+*.log
+
+# Testing
+htmlcov/
+.pytest_cache/
+.coverage
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.pid
+*.stats
+
+# Redis
+dump.rdb
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Local development
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Jupyter
+.ipynb_checkpoints
+
+# Package files
+*.tar.gz
+*.zip
