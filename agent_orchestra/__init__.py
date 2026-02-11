@@ -18,7 +18,13 @@ from .events import EventBus, Event, EventType
 from .plugins import PluginManager, PluginInterface
 from .config import ConfigurationManager
 from .migration import MigrationManager
-from .utils import AsyncRetry, RateLimiter, MetricsCollector
+from .utils import AsyncRetry, RateLimiter, MetricsCollector, AdaptiveRateLimiter
+from .recovery import ErrorRecoveryManager, CircuitBreaker, RecoveryStrategy
+from .health_checks import HealthCheckManager, HealthCheck, HealthStatus
+from .performance_profiler import PerformanceProfiler, get_profiler, profile
+from .logging_config import setup_logging, get_logger, LoggingContext
+from .env_config import get_config, get_env_var
+from .migrations import MigrationManager as DatabaseMigrationManager
 
 __all__ = [
     "Orchestra",
@@ -36,5 +42,21 @@ __all__ = [
     "MigrationManager",
     "AsyncRetry",
     "RateLimiter",
-    "MetricsCollector"
+    "MetricsCollector",
+    "AdaptiveRateLimiter",
+    "ErrorRecoveryManager",
+    "CircuitBreaker",
+    "RecoveryStrategy",
+    "HealthCheckManager",
+    "HealthCheck", 
+    "HealthStatus",
+    "PerformanceProfiler",
+    "get_profiler",
+    "profile",
+    "setup_logging",
+    "get_logger",
+    "LoggingContext",
+    "get_config",
+    "get_env_var",
+    "DatabaseMigrationManager"
 ]
