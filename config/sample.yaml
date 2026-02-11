@@ -1,0 +1,136 @@
+# Sample configuration for Agent Orchestra
+
+orchestra:
+  # Maximum number of concurrent tasks
+  max_concurrent_tasks: 100
+  
+  # Default task timeout in seconds
+  task_timeout_default: 300
+  
+  # Heartbeat interval in seconds
+  heartbeat_interval: 30
+  
+  # Logging configuration
+  log_level: "INFO"
+  
+  # Enable metrics collection
+  metrics_enabled: true
+  
+  # Enable monitoring dashboard
+  monitoring_enabled: true
+  
+  # Failure handling
+  failure_retry_attempts: 3
+  circuit_breaker_threshold: 5
+  circuit_breaker_timeout: 300
+
+# Redis configuration for state persistence
+redis:
+  # Redis connection URL (optional - overrides other settings)
+  # url: "redis://localhost:6379/0"
+  
+  # Redis host and port
+  host: "localhost"
+  port: 6379
+  db: 0
+  
+  # Redis password (optional)
+  # password: "your-redis-password"
+  
+  # Connection pool settings
+  max_connections: 10
+  retry_on_timeout: true
+
+# Monitoring and observability
+monitoring:
+  enabled: true
+  
+  # Port for metrics HTTP server
+  metrics_port: 8080
+  
+  # Enable web dashboard
+  dashboard_enabled: true
+  
+  # Metrics export interval in seconds
+  export_interval: 60
+  
+  # How long to keep historical data (days)
+  history_retention_days: 7
+  
+  # Alert thresholds
+  alert_thresholds:
+    error_rate: 0.1          # 10% error rate
+    cpu_usage: 90.0          # 90% CPU usage
+    memory_usage: 90.0       # 90% memory usage
+    task_timeout_rate: 0.05  # 5% timeout rate
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "json"  # or "text"
+  
+  # Optional log file (if not specified, logs go to stdout)
+  # file_path: "/var/log/agent-orchestra.log"
+  
+  # Log file rotation
+  max_file_size: "100MB"
+  backup_count: 5
+  
+  # Use structured logging
+  structured: true
+
+# Pre-configured agents (optional)
+agents:
+  - id: "text-processor-1"
+    name: "Text Processing Agent"
+    capabilities:
+      - "text_processing"
+      - "content_analysis"
+    max_concurrent_tasks: 5
+    metadata:
+      region: "us-west-2"
+      instance_type: "standard"
+  
+  - id: "data-processor-1"
+    name: "Data Processing Agent"
+    capabilities:
+      - "data_processing"
+      - "data_validation"
+      - "data_transformation"
+    max_concurrent_tasks: 10
+    resource_limits:
+      memory: "2GB"
+      cpu: "2 cores"
+    metadata:
+      region: "us-west-2"
+      instance_type: "compute-optimized"
+  
+  - id: "math-processor-1"
+    name: "Mathematical Computing Agent"
+    capabilities:
+      - "math_processing"
+      - "statistical_analysis"
+      - "numerical_computation"
+    max_concurrent_tasks: 3
+    resource_limits:
+      memory: "4GB"
+      cpu: "4 cores"
+    metadata:
+      region: "us-east-1"
+      instance_type: "memory-optimized"
+  
+  - id: "ml-processor-1"
+    name: "Machine Learning Agent"
+    capabilities:
+      - "model_inference"
+      - "data_preprocessing"
+      - "feature_extraction"
+    max_concurrent_tasks: 2
+    resource_limits:
+      memory: "8GB"
+      cpu: "8 cores"
+      gpu: "1 x NVIDIA T4"
+    metadata:
+      region: "us-west-2"
+      instance_type: "gpu-optimized"
+      specialization: "deep-learning"
