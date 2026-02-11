@@ -3,12 +3,12 @@ Agent implementation for the Agent Orchestra framework
 """
 import asyncio
 import time
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Union, Awaitable
 from datetime import datetime
 import structlog
 
 from .types import Task, AgentInfo, AgentCapability, AgentStatus, ExecutionResult
-from .exceptions import TaskExecutionError, AgentUnavailableError
+from .exceptions import TaskExecutionError, AgentUnavailableError, ValidationError
 
 logger = structlog.get_logger(__name__)
 
