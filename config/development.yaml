@@ -1,0 +1,41 @@
+# Development configuration for Agent Orchestra
+
+orchestra:
+  max_concurrent_tasks: 20
+  task_timeout_default: 60
+  heartbeat_interval: 10
+  log_level: "DEBUG"
+  metrics_enabled: true
+  monitoring_enabled: true
+  
+redis:
+  host: "localhost"
+  port: 6379
+  db: 1  # Use different DB for development
+  
+monitoring:
+  enabled: true
+  metrics_port: 8080
+  dashboard_enabled: true
+  export_interval: 30
+  alert_thresholds:
+    error_rate: 0.2  # More lenient for development
+    cpu_usage: 95.0
+    memory_usage: 95.0
+
+logging:
+  level: "DEBUG"
+  format: "json"
+  structured: true
+
+# Development agents
+agents:
+  - id: "dev-text-processor"
+    name: "Development Text Processor"
+    capabilities: ["text_processing", "content_analysis"]
+    max_concurrent_tasks: 5
+    
+  - id: "dev-data-processor"
+    name: "Development Data Processor" 
+    capabilities: ["data_processing", "data_validation"]
+    max_concurrent_tasks: 3
