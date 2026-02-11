@@ -16,6 +16,21 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
+class SystemHealthMetrics:
+    """System-wide health and resource metrics"""
+    active_agents: int = 0
+    total_queue_depth: int = 0
+    system_cpu_percent: float = 0.0
+    system_memory_percent: float = 0.0
+    redis_connection_pool_size: int = 0
+    redis_response_time_ms: float = 0.0
+    disk_usage_percent: float = 0.0
+    network_bytes_sent: int = 0
+    network_bytes_received: int = 0
+    uptime_seconds: float = 0.0
+
+
+@dataclass
 class PerformanceMetrics:
     """Performance metrics for tasks and agents"""
     total_tasks: int = 0
@@ -38,6 +53,11 @@ class AgentMetrics:
     average_task_time: float = 0.0
     uptime: float = 0.0
     current_status: str = "unknown"
+    cpu_usage_percent: float = 0.0
+    memory_usage_mb: float = 0.0
+    queue_depth: int = 0
+    last_heartbeat: Optional[datetime] = None
+    error_count_24h: int = 0
     last_task_completed: Optional[datetime] = None
     error_rate: float = 0.0
 
