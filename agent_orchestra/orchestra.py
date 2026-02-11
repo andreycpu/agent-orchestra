@@ -2,7 +2,7 @@
 Main Orchestra class that coordinates all components
 """
 import asyncio
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Union, Callable, Awaitable
 from datetime import datetime, timedelta
 import structlog
 

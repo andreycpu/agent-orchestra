@@ -1,7 +1,7 @@
 """
 Task routing logic for Agent Orchestra
 """
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import heapq
 from datetime import datetime
 import structlog
@@ -19,7 +19,7 @@ class TaskRouter:
     
     def __init__(self):
         self._agents: Dict[str, AgentInfo] = {}
-        self._task_queue: List[tuple] = []  # Priority queue (priority, task)
+        self._task_queue: List[Tuple[int, Task]] = []  # Priority queue (priority, task)
         self._dependency_graph: Dict[str, Set[str]] = {}
         
     def register_agent(self, agent_info: AgentInfo):
