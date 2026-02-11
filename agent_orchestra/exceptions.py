@@ -1,11 +1,21 @@
 """
 Custom exceptions for Agent Orchestra
 """
+from typing import Any, Dict, Optional
 
 
 class AgentOrchestraException(Exception):
     """Base exception for all Agent Orchestra errors"""
-    pass
+    
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.message = message
+        self.details = details or {}
+        
+    def __str__(self) -> str:
+        if self.details:
+            return f"{self.message} - Details: {self.details}"
+        return self.message
 
 
 class AgentRegistrationError(AgentOrchestraException):
@@ -55,4 +65,24 @@ class CircularDependencyError(AgentOrchestraException):
 
 class ResourceExhaustionError(AgentOrchestraException):
     """Raised when system resources are exhausted"""
+    pass
+
+
+class ValidationError(AgentOrchestraException):
+    """Raised when data validation fails"""
+    pass
+
+
+class ConfigurationError(AgentOrchestraException):
+    """Raised when configuration is invalid or missing"""
+    pass
+
+
+class SecurityError(AgentOrchestraException):
+    """Raised when security violations are detected"""
+    pass
+
+
+class NetworkError(AgentOrchestraException):
+    """Raised when network operations fail"""
     pass
