@@ -5,6 +5,7 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Callable, Union
 from datetime import datetime, timedelta
+from collections import deque
 import json
 import hashlib
 import structlog
@@ -180,6 +181,73 @@ class RateLimiter:
             needed_tokens = tokens - self.tokens
             wait_time = needed_tokens / self.rate
             await asyncio.sleep(min(wait_time, 0.1))
+
+
+class AdaptiveRateLimiter:
+    """Enhanced rate limiter with adaptive capacity and detailed metrics"""
+    
+    def __init__(self, initial_rate: float, initial_capacity: int, name: str = "adaptive"):
+        self.rate = initial_rate
+        self.capacity = initial_capacity
+        self.tokens = initial_capacity
+        self.last_refill = time.time()
+        self.name = name
+        self._lock = asyncio.Lock()
+        
+        # Adaptive parameters
+        self.min_rate = initial_rate * 0.1
+        self.max_rate = initial_rate * 10.0
+        self.rate_adjustment_factor = 0.1
+        
+        # Metrics
+        self._requests_allowed = 0
+        self._requests_denied = 0
+        self._total_wait_time = 0.0
+        self._recent_success_rate = deque(maxlen=100)
+        
+    async def acquire(self, tokens: int = 1) -> bool:
+        """Acquire tokens with adaptive rate adjustment"""
+        async with self._lock:
+            now = time.time()
+            elapsed = now - self.last_refill
+            
+            # Refill tokens
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            self.last_refill = now
+            
+            if self.tokens >= tokens:
+                self.tokens -= tokens
+                self._requests_allowed += 1
+                self._recent_success_rate.append(1)
+                return True
+            
+            self._requests_denied += 1
+            self._recent_success_rate.append(0)
+            self._adjust_rate()
+            return False
+    
+    def _adjust_rate(self):
+        """Adjust rate based on recent success rate"""
+        if len(self._recent_success_rate) >= 20:
+            success_rate = sum(self._recent_success_rate) / len(self._recent_success_rate)
+            
+            if success_rate < 0.8:  # Too many rejections, increase rate
+                self.rate = min(self.max_rate, self.rate * (1 + self.rate_adjustment_factor))
+            elif success_rate > 0.95:  # Very few rejections, can decrease rate
+                self.rate = max(self.min_rate, self.rate * (1 - self.rate_adjustment_factor))
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive rate limiter metrics"""
+        total = self._requests_allowed + self._requests_denied
+        return {
+            "name": self.name,
+            "current_rate": self.rate,
+            "capacity": self.capacity,
+            "tokens_available": self.tokens,
+            "total_requests": total,
+            "success_rate": self._requests_allowed / total if total > 0 else 0.0,
+            "recent_success_rate": sum(self._recent_success_rate) / len(self._recent_success_rate) if self._recent_success_rate else 0.0
+        }
 
 
 class MetricsCollector:
