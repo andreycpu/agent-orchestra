@@ -12,13 +12,15 @@ setup(
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
-        "asyncio",
         "pydantic>=2.0",
         "aioredis>=2.0",
         "httpx>=0.24",
         "uvloop>=0.17",
         "structlog>=23.0",
         "prometheus-client>=0.16",
+        "PyJWT>=2.8",
+        "PyYAML>=6.0",
+        "psutil>=5.9",
     ],
     extras_require={
         "dev": [
