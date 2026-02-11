@@ -6,10 +6,16 @@ import sys
 import argparse
 import json
 import time
+import traceback
 from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
 import structlog
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.panel import Panel
+from rich.text import Text
 
 from .orchestra import Orchestra
 from .agent import Agent
@@ -601,20 +607,156 @@ class OrchestrationCLI:
             print(f"Performance report saved to {args.output}")
         else:
             print(output)
+    
+    def _format_error(self, error: Exception, show_traceback: bool = False) -> str:
+        """Format error message with optional traceback"""
+        console = Console()
+        
+        if show_traceback:
+            error_text = Text()
+            error_text.append("Error: ", style="bold red")
+            error_text.append(str(error), style="red")
+            error_text.append("\n\nTraceback:\n", style="bold")
+            error_text.append(traceback.format_exc(), style="dim")
+            
+            panel = Panel(
+                error_text,
+                title="[red]Exception Details[/red]",
+                border_style="red"
+            )
+            
+            with console.capture() as capture:
+                console.print(panel)
+            return capture.get()
+        else:
+            return f"Error: {str(error)}"
+    
+    def _format_success(self, message: str) -> str:
+        """Format success message"""
+        console = Console()
+        panel = Panel(
+            Text(message, style="green"),
+            title="[green]Success[/green]",
+            border_style="green"
+        )
+        
+        with console.capture() as capture:
+            console.print(panel)
+        return capture.get()
+    
+    async def _handle_health_command(self, args: argparse.Namespace):
+        """Handle health check commands"""
+        try:
+            from .health_checks import HealthCheckManager
+            
+            if not self.orchestra:
+                self.orchestra = await self._create_orchestra(args.config)
+            
+            health_manager = HealthCheckManager()
+            
+            if args.health_action == "check":
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    console=Console()
+                ) as progress:
+                    task = progress.add_task("Running health checks...", total=None)
+                    results = await health_manager.run_all_health_checks()
+                    progress.remove_task(task)
+                
+                # Format results in a table
+                console = Console()
+                table = Table(title="Health Check Results")
+                table.add_column("Check", style="cyan", no_wrap=True)
+                table.add_column("Status", no_wrap=True)
+                table.add_column("Message", style="magenta")
+                table.add_column("Execution Time", justify="right")
+                
+                for name, result in results.items():
+                    status_style = {
+                        "pass": "green",
+                        "warn": "yellow", 
+                        "fail": "red"
+                    }.get(result.status.value, "white")
+                    
+                    table.add_row(
+                        name,
+                        Text(result.status.value.upper(), style=status_style),
+                        result.message,
+                        f"{result.execution_time:.3f}s" if result.execution_time else "N/A"
+                    )
+                
+                console.print(table)
+                
+                # Overall health status
+                overall = health_manager.get_overall_health()
+                status_style = {
+                    "pass": "green",
+                    "warn": "yellow",
+                    "fail": "red"
+                }.get(overall["status"], "white")
+                
+                console.print(f"\n[{status_style}]Overall Status: {overall['status'].upper()}[/{status_style}]")
+                console.print(f"[dim]{overall['message']}[/dim]")
+                
+            elif args.health_action == "summary":
+                overall = health_manager.get_overall_health()
+                print(json.dumps(overall, indent=2, default=str))
+            
+        except Exception as e:
+            logger.error("Health check command failed", error=str(e))
+            print(self._format_error(e, show_traceback=getattr(args, 'verbose', False)))
+            sys.exit(1)
+    
+    async def _create_orchestra(self, config_path: Optional[str]) -> Orchestra:
+        """Create and initialize Orchestra instance"""
+        if config_path:
+            config = await self.config_manager.load_config(config_path)
+        else:
+            config = self.config_manager.get_default_config()
+        
+        orchestra = Orchestra(
+            redis_url=config.get('redis', {}).get('url'),
+            max_concurrent_tasks=config.get('orchestra', {}).get('max_concurrent_tasks', 100)
+        )
+        
+        await orchestra.start()
+        return orchestra
 
 
 def main():
-    """Main CLI entry point"""
+    """Main CLI entry point with improved error handling"""
     cli = OrchestrationCLI()
     parser = cli.create_parser()
-    args = parser.parse_args()
     
-    if args.command is None:
-        parser.print_help()
+    try:
+        args = parser.parse_args()
+        
+        if args.command is None:
+            parser.print_help()
+            sys.exit(1)
+        
+        # Setup rich console for better output
+        console = Console()
+        
+        # Run the async command with proper error handling
+        try:
+            asyncio.run(cli.run(args))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Operation cancelled by user[/yellow]")
+            sys.exit(130)  # Standard exit code for SIGINT
+        except Exception as e:
+            show_traceback = getattr(args, 'verbose', False)
+            error_output = cli._format_error(e, show_traceback)
+            console.print(error_output)
+            sys.exit(1)
+            
+    except SystemExit:
+        raise
+    except Exception as e:
+        # Last resort error handling
+        print(f"Fatal error: {str(e)}", file=sys.stderr)
         sys.exit(1)
-    
-    # Run the async command
-    asyncio.run(cli.run(args))
 
 
 if __name__ == "__main__":
