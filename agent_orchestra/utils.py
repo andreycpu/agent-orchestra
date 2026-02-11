@@ -13,7 +13,19 @@ logger = structlog.get_logger(__name__)
 
 
 def generate_task_id(task_type: str, data: Dict[str, Any]) -> str:
-    """Generate a deterministic task ID based on task type and data"""
+    """Generate a deterministic task ID based on task type and data.
+    
+    Args:
+        task_type: The type of task
+        data: Task data dictionary
+        
+    Returns:
+        A 16-character hexadecimal task ID
+        
+    Example:
+        >>> generate_task_id("process_data", {"input": "test"})
+        'a1b2c3d4e5f6g7h8'
+    """
     content = f"{task_type}:{json.dumps(data, sort_keys=True)}"
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
@@ -25,7 +37,22 @@ def calculate_task_hash(task_type: str, data: Dict[str, Any]) -> str:
 
 
 def format_duration(seconds: float) -> str:
-    """Format duration in seconds to human readable format"""
+    """Format duration in seconds to human readable format.
+    
+    Args:
+        seconds: Duration in seconds
+        
+    Returns:
+        Human-readable duration string
+        
+    Examples:
+        >>> format_duration(0.5)
+        '500ms'
+        >>> format_duration(65.0)
+        '1.1m'
+        >>> format_duration(3661.0)
+        '1.0h'
+    """
     if seconds < 1:
         return f"{seconds*1000:.0f}ms"
     elif seconds < 60:
