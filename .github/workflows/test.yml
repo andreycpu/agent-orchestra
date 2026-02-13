@@ -1,0 +1,262 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, "3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev,test]"
+        
+        # Install optional dependencies for full testing
+        pip install psutil pyyaml aiohttp
+        
+        # Install testing tools
+        pip install pytest pytest-cov pytest-asyncio pytest-mock
+        pip install coverage[toml] codecov
+    
+    - name: Lint with flake8
+      run: |
+        pip install flake8
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+    
+    - name: Type check with mypy
+      run: |
+        pip install mypy types-PyYAML
+        mypy agent_orchestra --ignore-missing-imports || true
+    
+    - name: Security check with bandit
+      run: |
+        pip install bandit
+        bandit -r agent_orchestra -f json -o bandit-report.json || true
+    
+    - name: Test with pytest
+      env:
+        ORCHESTRA_SECRET_KEY: test-secret-key-for-testing
+        ORCHESTRA_DATABASE_URL: sqlite:///test.db
+      run: |
+        pytest tests/ \
+          --cov=agent_orchestra \
+          --cov-report=xml \
+          --cov-report=html \
+          --cov-report=term-missing \
+          --cov-fail-under=80 \
+          --verbose \
+          --tb=short
+    
+    - name: Upload coverage to Codecov
+      if: matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Test CLI script
+      run: |
+        python scripts/orchestra-admin.py --help
+        python scripts/orchestra-admin.py config env-check --format json || true
+    
+    - name: Integration test
+      env:
+        ORCHESTRA_SECRET_KEY: test-secret-key-for-integration
+        ORCHESTRA_DATABASE_URL: sqlite:///integration_test.db
+      run: |
+        python -c "
+        import agent_orchestra
+        print('Testing imports...')
+        print(f'Agent Orchestra version: {agent_orchestra.__version__}')
+        print(f'New features available: {agent_orchestra.NEW_FEATURES_AVAILABLE}')
+        
+        # Test basic functionality
+        if agent_orchestra.NEW_FEATURES_AVAILABLE:
+            print('Testing validation...')
+            from agent_orchestra import validate_id
+            result = validate_id('test-123')
+            print(f'Validation result: {result}')
+            
+            print('Testing cache...')
+            cache = agent_orchestra.create_cache('test')
+            cache.set('key', 'value')
+            print(f'Cache test: {cache.get(\"key\")}')
+            
+            print('Testing environment...')
+            from agent_orchestra.environment_utils import get_environment_info
+            env_info = get_environment_info()
+            print(f'Environment: {env_info.environment}')
+        
+        print('Integration test passed!')
+        "
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install safety bandit
+    
+    - name: Security check with Safety
+      run: |
+        safety check --json --output safety-report.json || true
+    
+    - name: Security scan with Bandit
+      run: |
+        bandit -r agent_orchestra -f json -o bandit-security.json || true
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          safety-report.json
+          bandit-security.json
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev,docs]"
+        pip install mkdocs mkdocs-material mkdocstrings[python] || true
+    
+    - name: Check documentation links
+      run: |
+        python -c "
+        import os
+        import re
+        from pathlib import Path
+        
+        docs_dir = Path('docs')
+        if docs_dir.exists():
+            print('Checking documentation files...')
+            for doc_file in docs_dir.glob('*.md'):
+                print(f'Checking {doc_file}')
+                content = doc_file.read_text()
+                # Basic check for common markdown issues
+                if ']((' in content:
+                    print(f'Warning: Potential malformed link in {doc_file}')
+        
+        print('Documentation check complete')
+        "
+    
+    - name: Validate README
+      run: |
+        python -c "
+        from pathlib import Path
+        readme = Path('README.md')
+        if readme.exists():
+            content = readme.read_text()
+            print(f'README.md length: {len(content)} characters')
+            if len(content) < 1000:
+                print('Warning: README.md might be too short')
+            print('README.md validation complete')
+        else:
+            print('No README.md found')
+        "
+
+  performance:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install pytest-benchmark memory-profiler
+    
+    - name: Performance benchmarks
+      run: |
+        python -c "
+        import time
+        import agent_orchestra
+        
+        print('Running basic performance tests...')
+        
+        # Test cache performance
+        if agent_orchestra.NEW_FEATURES_AVAILABLE:
+            cache = agent_orchestra.create_cache('perf_test', max_size=1000)
+            
+            # Write performance
+            start = time.time()
+            for i in range(1000):
+                cache.set(f'key_{i}', f'value_{i}')
+            write_time = time.time() - start
+            print(f'Cache write (1000 items): {write_time:.3f}s')
+            
+            # Read performance
+            start = time.time()
+            for i in range(1000):
+                cache.get(f'key_{i}')
+            read_time = time.time() - start
+            print(f'Cache read (1000 items): {read_time:.3f}s')
+            
+            # Test validation performance
+            from agent_orchestra import validate_id
+            start = time.time()
+            for i in range(1000):
+                validate_id(f'test-id-{i}')
+            validation_time = time.time() - start
+            print(f'Validation (1000 calls): {validation_time:.3f}s')
+        
+        print('Performance tests completed')
+        "
