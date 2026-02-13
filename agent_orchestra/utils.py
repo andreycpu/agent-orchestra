@@ -3,12 +3,23 @@ Utility functions for Agent Orchestra
 """
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Callable, Union
+import re
+import os
+import sys
+import platform
+import uuid
+import functools
+import threading
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Callable, Union, Tuple, Set, Iterator
 from datetime import datetime, timedelta
-from collections import deque
+from collections import deque, defaultdict
+from contextlib import contextmanager, asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import hashlib
 import structlog
+import psutil
 
 logger = structlog.get_logger(__name__)
 
@@ -724,3 +735,563 @@ def truncate_string(text: str, max_length: int, suffix: str = "...") -> str:
     
     truncate_length = max_length - len(suffix)
     return text[:truncate_length] + suffix
+
+
+# System and Resource Utilities
+
+def get_system_info() -> Dict[str, Any]:
+    """Get comprehensive system information.
+    
+    Returns:
+        Dictionary with system information including CPU, memory, disk, and OS details
+    """
+    try:
+        cpu_info = {
+            'count': psutil.cpu_count(),
+            'count_logical': psutil.cpu_count(logical=True),
+            'percent': psutil.cpu_percent(interval=1),
+            'per_cpu': psutil.cpu_percent(interval=1, percpu=True)
+        }
+        
+        memory = psutil.virtual_memory()
+        memory_info = {
+            'total': memory.total,
+            'available': memory.available,
+            'percent': memory.percent,
+            'used': memory.used,
+            'free': memory.free
+        }
+        
+        disk = psutil.disk_usage('/')
+        disk_info = {
+            'total': disk.total,
+            'used': disk.used,
+            'free': disk.free,
+            'percent': (disk.used / disk.total) * 100
+        }
+        
+        return {
+            'platform': platform.platform(),
+            'python_version': platform.python_version(),
+            'hostname': platform.node(),
+            'architecture': platform.architecture(),
+            'processor': platform.processor(),
+            'cpu': cpu_info,
+            'memory': memory_info,
+            'disk': disk_info,
+            'boot_time': psutil.boot_time(),
+            'uptime_seconds': time.time() - psutil.boot_time()
+        }
+        
+    except Exception as e:
+        logger.warning(f"Failed to get system info: {e}")
+        return {
+            'platform': platform.platform(),
+            'python_version': platform.python_version(),
+            'error': str(e)
+        }
+
+
+def get_memory_usage() -> Dict[str, float]:
+    """Get current process memory usage in MB.
+    
+    Returns:
+        Dictionary with memory usage statistics
+    """
+    try:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_percent = process.memory_percent()
+        
+        return {
+            'rss_mb': memory_info.rss / 1024 / 1024,
+            'vms_mb': memory_info.vms / 1024 / 1024,
+            'percent': memory_percent,
+            'available_mb': psutil.virtual_memory().available / 1024 / 1024
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get memory usage: {e}")
+        return {'error': str(e)}
+
+
+def check_disk_space(path: str = "/", min_free_gb: float = 1.0) -> Dict[str, Any]:
+    """Check available disk space.
+    
+    Args:
+        path: Path to check disk space for
+        min_free_gb: Minimum free space in GB
+        
+    Returns:
+        Dictionary with disk space information and warnings
+    """
+    try:
+        usage = psutil.disk_usage(path)
+        free_gb = usage.free / (1024 ** 3)
+        total_gb = usage.total / (1024 ** 3)
+        used_percent = (usage.used / usage.total) * 100
+        
+        return {
+            'path': path,
+            'total_gb': round(total_gb, 2),
+            'free_gb': round(free_gb, 2),
+            'used_percent': round(used_percent, 2),
+            'low_space_warning': free_gb < min_free_gb,
+            'sufficient_space': free_gb >= min_free_gb
+        }
+    except Exception as e:
+        logger.error(f"Failed to check disk space for {path}: {e}")
+        return {'path': path, 'error': str(e)}
+
+
+# Data Processing Utilities
+
+def chunk_list(data: List[Any], chunk_size: int) -> Iterator[List[Any]]:
+    """Split a list into chunks of specified size.
+    
+    Args:
+        data: List to chunk
+        chunk_size: Size of each chunk
+        
+    Yields:
+        Chunks of the original list
+        
+    Example:
+        >>> list(chunk_list([1,2,3,4,5], 2))
+        [[1, 2], [3, 4], [5]]
+    """
+    if chunk_size <= 0:
+        raise ValueError("Chunk size must be positive")
+    
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
+
+
+def flatten_dict(d: Dict[str, Any], parent_key: str = '', separator: str = '.') -> Dict[str, Any]:
+    """Flatten a nested dictionary.
+    
+    Args:
+        d: Dictionary to flatten
+        parent_key: Parent key prefix
+        separator: Separator for nested keys
+        
+    Returns:
+        Flattened dictionary
+        
+    Example:
+        >>> flatten_dict({'a': {'b': 1, 'c': 2}, 'd': 3})
+        {'a.b': 1, 'a.c': 2, 'd': 3}
+    """
+    items = []
+    
+    for key, value in d.items():
+        new_key = f"{parent_key}{separator}{key}" if parent_key else key
+        
+        if isinstance(value, dict):
+            items.extend(flatten_dict(value, new_key, separator).items())
+        else:
+            items.append((new_key, value))
+    
+    return dict(items)
+
+
+def unflatten_dict(d: Dict[str, Any], separator: str = '.') -> Dict[str, Any]:
+    """Unflatten a dictionary with dotted keys.
+    
+    Args:
+        d: Dictionary to unflatten
+        separator: Separator used in keys
+        
+    Returns:
+        Nested dictionary
+        
+    Example:
+        >>> unflatten_dict({'a.b': 1, 'a.c': 2, 'd': 3})
+        {'a': {'b': 1, 'c': 2}, 'd': 3}
+    """
+    result = {}
+    
+    for key, value in d.items():
+        parts = key.split(separator)
+        current = result
+        
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+        
+        current[parts[-1]] = value
+    
+    return result
+
+
+def filter_dict(d: Dict[str, Any], keys_to_keep: Optional[Set[str]] = None, 
+                keys_to_remove: Optional[Set[str]] = None) -> Dict[str, Any]:
+    """Filter dictionary by keeping or removing specific keys.
+    
+    Args:
+        d: Dictionary to filter
+        keys_to_keep: Keys to keep (if specified, only these keys are kept)
+        keys_to_remove: Keys to remove
+        
+    Returns:
+        Filtered dictionary
+    """
+    if keys_to_keep is not None:
+        return {k: v for k, v in d.items() if k in keys_to_keep}
+    elif keys_to_remove is not None:
+        return {k: v for k, v in d.items() if k not in keys_to_remove}
+    else:
+        return d.copy()
+
+
+# String and Text Utilities
+
+def normalize_whitespace(text: str) -> str:
+    """Normalize whitespace in text.
+    
+    Args:
+        text: Text to normalize
+        
+    Returns:
+        Text with normalized whitespace
+    """
+    return re.sub(r'\s+', ' ', text.strip())
+
+
+def extract_keywords(text: str, min_length: int = 3) -> List[str]:
+    """Extract potential keywords from text.
+    
+    Args:
+        text: Text to extract keywords from
+        min_length: Minimum keyword length
+        
+    Returns:
+        List of potential keywords
+    """
+    # Simple keyword extraction (remove common words, split on non-alphanumeric)
+    common_words = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+        'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they'
+    }
+    
+    # Extract words
+    words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+    
+    # Filter keywords
+    keywords = [
+        word for word in words 
+        if len(word) >= min_length and word not in common_words
+    ]
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    return [word for word in keywords if not (word in seen or seen.add(word))]
+
+
+def safe_format_string(template: str, **kwargs) -> str:
+    """Safely format a string template, handling missing keys gracefully.
+    
+    Args:
+        template: String template with format placeholders
+        **kwargs: Values to substitute
+        
+    Returns:
+        Formatted string with missing placeholders left as-is
+    """
+    class SafeDict(dict):
+        def __missing__(self, key):
+            return '{' + key + '}'
+    
+    return template.format_map(SafeDict(kwargs))
+
+
+# Concurrency and Threading Utilities
+
+@contextmanager
+def timeout_context(seconds: float):
+    """Context manager that raises TimeoutError after specified seconds.
+    
+    Args:
+        seconds: Timeout in seconds
+        
+    Raises:
+        TimeoutError: If timeout is reached
+    """
+    if sys.platform == "win32":
+        # Windows doesn't support signal-based timeouts
+        yield
+        return
+    
+    import signal
+    
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Operation timed out after {seconds} seconds")
+    
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(int(seconds))
+    
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def run_with_timeout(func: Callable, timeout_seconds: float, *args, **kwargs):
+    """Run a function with a timeout.
+    
+    Args:
+        func: Function to run
+        timeout_seconds: Timeout in seconds
+        *args: Function arguments
+        **kwargs: Function keyword arguments
+        
+    Returns:
+        Function result
+        
+    Raises:
+        TimeoutError: If function doesn't complete within timeout
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except Exception as e:
+            future.cancel()
+            if "timeout" in str(e).lower():
+                raise TimeoutError(f"Function timed out after {timeout_seconds} seconds")
+            raise
+
+
+class RateLimiter:
+    """Token bucket rate limiter for controlling request rates."""
+    
+    def __init__(self, rate: float, burst: int = 1):
+        """Initialize rate limiter.
+        
+        Args:
+            rate: Requests per second
+            burst: Maximum burst size
+        """
+        self.rate = rate
+        self.burst = burst
+        self.tokens = burst
+        self.last_update = time.time()
+        self.lock = threading.Lock()
+    
+    def acquire(self, tokens: int = 1) -> bool:
+        """Try to acquire tokens.
+        
+        Args:
+            tokens: Number of tokens to acquire
+            
+        Returns:
+            True if tokens were acquired, False otherwise
+        """
+        with self.lock:
+            now = time.time()
+            time_passed = now - self.last_update
+            self.tokens = min(self.burst, self.tokens + time_passed * self.rate)
+            self.last_update = now
+            
+            if self.tokens >= tokens:
+                self.tokens -= tokens
+                return True
+            return False
+    
+    def wait_time(self, tokens: int = 1) -> float:
+        """Calculate wait time for tokens.
+        
+        Args:
+            tokens: Number of tokens needed
+            
+        Returns:
+            Wait time in seconds
+        """
+        with self.lock:
+            if self.tokens >= tokens:
+                return 0.0
+            
+            needed_tokens = tokens - self.tokens
+            return needed_tokens / self.rate
+
+
+# File and Path Utilities
+
+def ensure_directory(path: Union[str, Path]) -> Path:
+    """Ensure directory exists, creating it if necessary.
+    
+    Args:
+        path: Directory path
+        
+    Returns:
+        Path object for the directory
+    """
+    path_obj = Path(path)
+    path_obj.mkdir(parents=True, exist_ok=True)
+    return path_obj
+
+
+def safe_write_file(path: Union[str, Path], content: str, encoding: str = 'utf-8') -> bool:
+    """Safely write content to file with atomic operation.
+    
+    Args:
+        path: File path
+        content: Content to write
+        encoding: File encoding
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        path_obj = Path(path)
+        temp_path = path_obj.with_suffix(path_obj.suffix + '.tmp')
+        
+        # Write to temporary file first
+        with open(temp_path, 'w', encoding=encoding) as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        # Atomically rename to target file
+        temp_path.rename(path_obj)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to write file {path}: {e}")
+        # Clean up temp file if it exists
+        if 'temp_path' in locals() and temp_path.exists():
+            try:
+                temp_path.unlink()
+            except:
+                pass
+        return False
+
+
+def get_file_hash(path: Union[str, Path], algorithm: str = 'sha256') -> Optional[str]:
+    """Calculate hash of file contents.
+    
+    Args:
+        path: File path
+        algorithm: Hash algorithm (sha256, md5, etc.)
+        
+    Returns:
+        Hex digest of file hash, or None if error
+    """
+    try:
+        hash_obj = hashlib.new(algorithm)
+        
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_obj.update(chunk)
+        
+        return hash_obj.hexdigest()
+        
+    except Exception as e:
+        logger.error(f"Failed to hash file {path}: {e}")
+        return None
+
+
+# Network and URL Utilities
+
+def parse_connection_string(conn_str: str) -> Dict[str, Any]:
+    """Parse database or service connection string.
+    
+    Args:
+        conn_str: Connection string like "protocol://user:pass@host:port/database"
+        
+    Returns:
+        Dictionary with parsed components
+    """
+    from urllib.parse import urlparse
+    
+    try:
+        parsed = urlparse(conn_str)
+        
+        return {
+            'protocol': parsed.scheme,
+            'username': parsed.username,
+            'password': parsed.password,
+            'hostname': parsed.hostname,
+            'port': parsed.port,
+            'database': parsed.path.lstrip('/') if parsed.path else None,
+            'query': dict(param.split('=') for param in parsed.query.split('&') if '=' in param) if parsed.query else {}
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to parse connection string: {e}")
+        return {'error': str(e)}
+
+
+def is_port_open(host: str, port: int, timeout: float = 3.0) -> bool:
+    """Check if a port is open on a host.
+    
+    Args:
+        host: Hostname or IP address
+        port: Port number
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        True if port is open, False otherwise
+    """
+    import socket
+    
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            result = sock.connect_ex((host, port))
+            return result == 0
+    except Exception:
+        return False
+
+
+# Caching and Memoization
+
+def lru_cache_with_ttl(maxsize: int = 128, ttl_seconds: float = 300):
+    """LRU cache decorator with TTL (time-to-live).
+    
+    Args:
+        maxsize: Maximum cache size
+        ttl_seconds: Time to live in seconds
+    """
+    def decorator(func):
+        cache = {}
+        cache_times = {}
+        lock = threading.Lock()
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(sorted(kwargs.items()))
+            current_time = time.time()
+            
+            with lock:
+                # Check if key exists and is not expired
+                if key in cache and current_time - cache_times[key] < ttl_seconds:
+                    return cache[key]
+                
+                # Clean expired entries
+                expired_keys = [
+                    k for k, t in cache_times.items()
+                    if current_time - t >= ttl_seconds
+                ]
+                for k in expired_keys:
+                    cache.pop(k, None)
+                    cache_times.pop(k, None)
+                
+                # Enforce maxsize
+                if len(cache) >= maxsize:
+                    oldest_key = min(cache_times.keys(), key=cache_times.get)
+                    cache.pop(oldest_key, None)
+                    cache_times.pop(oldest_key, None)
+                
+                # Execute function and cache result
+                result = func(*args, **kwargs)
+                cache[key] = result
+                cache_times[key] = current_time
+                
+                return result
+        
+        return wrapper
+    return decorator
