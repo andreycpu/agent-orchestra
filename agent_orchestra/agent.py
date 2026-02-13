@@ -8,7 +8,11 @@ from datetime import datetime
 import structlog
 
 from .types import Task, AgentInfo, AgentCapability, AgentStatus, ExecutionResult
-from .exceptions import TaskExecutionError, AgentUnavailableError, ValidationError
+from .exceptions import (
+    TaskExecutionError, AgentUnavailableError, ValidationError, 
+    TaskValidationError, AgentCapabilityError, HeartbeatError,
+    StatusTransitionError, DuplicateHandlerError, IncompatibleTaskError
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -117,7 +121,7 @@ class Agent:
         if not isinstance(task, Task):
             raise ValidationError("task must be a Task instance")
         if not hasattr(task, 'type') or not task.type:
-            raise ValidationError("task must have a valid type")
+            raise TaskValidationError("task must have a valid type")
             
         start_time = time.time()
         
@@ -125,7 +129,10 @@ class Agent:
             raise AgentUnavailableError(f"Agent {self.id} is not available")
         
         if not self.can_handle_task(task):
-            raise TaskExecutionError(f"Agent {self.id} cannot handle task type {task.type}")
+            raise IncompatibleTaskError(
+                f"Agent {self.id} cannot handle task type {task.type}",
+                details={"agent_id": self.id, "task_type": task.type, "available_capabilities": [c.name for c in self.capabilities]}
+            )
         
         self.status = AgentStatus.BUSY
         self.current_task = task.id
@@ -180,6 +187,112 @@ class Agent:
             self.status = AgentStatus.IDLE
             self.current_task = None
             self._last_heartbeat = datetime.utcnow()
+
+    async def execute_task_with_retry(
+        self, 
+        task: Task, 
+        max_retries: int = 3, 
+        base_delay: float = 1.0,
+        exponential_base: float = 2.0
+    ) -> ExecutionResult:
+        """Execute a task with retry logic and exponential backoff
+        
+        Args:
+            task: The task to execute
+            max_retries: Maximum number of retry attempts
+            base_delay: Base delay between retries in seconds
+            exponential_base: Base for exponential backoff calculation
+            
+        Returns:
+            ExecutionResult: Result of task execution
+            
+        Raises:
+            ValidationError: If parameters are invalid
+        """
+        if max_retries < 0:
+            raise ValidationError("max_retries must be non-negative")
+        if base_delay < 0:
+            raise ValidationError("base_delay must be non-negative")
+        if exponential_base <= 1:
+            raise ValidationError("exponential_base must be greater than 1")
+            
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                result = await self.execute_task(task)
+                
+                # Return on success or if it's a non-retryable error
+                if result.success or not self._is_retryable_error(result.error):
+                    if attempt > 0:
+                        logger.info(
+                            "Task execution succeeded after retry",
+                            agent_id=self.id,
+                            task_id=task.id,
+                            attempt=attempt + 1
+                        )
+                    return result
+                    
+                last_exception = result.error
+                
+            except Exception as e:
+                last_exception = str(e)
+                
+                # Don't retry validation errors or agent unavailable errors
+                if isinstance(e, (ValidationError, AgentUnavailableError)):
+                    raise
+                    
+            # Don't delay after the last attempt
+            if attempt < max_retries:
+                delay = base_delay * (exponential_base ** attempt)
+                
+                logger.warning(
+                    "Task execution failed, retrying",
+                    agent_id=self.id,
+                    task_id=task.id,
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    delay=delay,
+                    error=last_exception
+                )
+                
+                await asyncio.sleep(delay)
+        
+        # All retries exhausted
+        logger.error(
+            "Task execution failed after all retries",
+            agent_id=self.id,
+            task_id=task.id,
+            max_retries=max_retries,
+            final_error=last_exception
+        )
+        
+        return ExecutionResult(
+            task_id=task.id,
+            success=False,
+            error=f"Task failed after {max_retries} retries. Final error: {last_exception}",
+            execution_time=0
+        )
+
+    def _is_retryable_error(self, error: Optional[str]) -> bool:
+        """Determine if an error is retryable
+        
+        Args:
+            error: Error message or None
+            
+        Returns:
+            bool: True if error is retryable
+        """
+        if not error:
+            return True
+            
+        # Don't retry validation errors, agent unavailable, or incompatible tasks
+        non_retryable_keywords = [
+            "validation", "unavailable", "incompatible", "invalid", "cannot handle"
+        ]
+        
+        error_lower = error.lower()
+        return not any(keyword in error_lower for keyword in non_retryable_keywords)
     
     async def _execute_with_timeout(self, handler: Callable, task: Task) -> Any:
         """Execute handler with optional timeout"""
@@ -204,12 +317,87 @@ class Agent:
         )
     
     def update_heartbeat(self):
-        """Update the last heartbeat timestamp"""
-        self._last_heartbeat = datetime.utcnow()
+        """Update the last heartbeat timestamp
         
+        Raises:
+            HeartbeatError: If heartbeat update fails
+        """
+        try:
+            old_heartbeat = self._last_heartbeat
+            self._last_heartbeat = datetime.utcnow()
+            
+            logger.debug(
+                "Heartbeat updated",
+                agent_id=self.id,
+                old_heartbeat=old_heartbeat.isoformat(),
+                new_heartbeat=self._last_heartbeat.isoformat()
+            )
+            
+        except Exception as e:
+            raise HeartbeatError(
+                f"Failed to update heartbeat for agent {self.id}: {str(e)}",
+                details={"agent_id": self.id, "error": str(e)}
+            )
+
+    def is_heartbeat_stale(self, max_age_seconds: int = 300) -> bool:
+        """Check if the agent's heartbeat is stale
+        
+        Args:
+            max_age_seconds: Maximum age of heartbeat in seconds before considering stale
+            
+        Returns:
+            bool: True if heartbeat is stale
+            
+        Raises:
+            ValidationError: If max_age_seconds is invalid
+        """
+        if max_age_seconds <= 0:
+            raise ValidationError("max_age_seconds must be positive")
+            
+        age = datetime.utcnow() - self._last_heartbeat
+        return age.total_seconds() > max_age_seconds
+        
+    def _is_valid_status_transition(self, from_status: AgentStatus, to_status: AgentStatus) -> bool:
+        """Check if status transition is valid
+        
+        Args:
+            from_status: Current status
+            to_status: Target status
+            
+        Returns:
+            bool: True if transition is valid
+        """
+        # Define valid transitions
+        valid_transitions = {
+            AgentStatus.IDLE: {AgentStatus.BUSY, AgentStatus.UNAVAILABLE},
+            AgentStatus.BUSY: {AgentStatus.IDLE, AgentStatus.UNAVAILABLE},
+            AgentStatus.UNAVAILABLE: {AgentStatus.IDLE, AgentStatus.BUSY}
+        }
+        
+        return to_status in valid_transitions.get(from_status, set())
+
     def set_status(self, status: AgentStatus):
-        """Set the agent status"""
+        """Set the agent status with validation
+        
+        Args:
+            status: New status to set
+            
+        Raises:
+            ValidationError: If status is invalid
+            StatusTransitionError: If status transition is invalid
+        """
+        if not isinstance(status, AgentStatus):
+            raise ValidationError("status must be an AgentStatus enum value")
+            
         old_status = self.status
+        
+        # Validate status transition
+        if not self._is_valid_status_transition(old_status, status):
+            raise StatusTransitionError(
+                f"Invalid status transition from {old_status} to {status}",
+                details={"from_status": old_status.value, "to_status": status.value}
+            )
+        
         self.status = status
         
         logger.info(

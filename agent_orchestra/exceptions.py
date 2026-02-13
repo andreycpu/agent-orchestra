@@ -86,3 +86,38 @@ class SecurityError(AgentOrchestraException):
 class NetworkError(AgentOrchestraException):
     """Raised when network operations fail"""
     pass
+
+
+class HandlerRegistrationError(AgentOrchestraException):
+    """Raised when task handler registration fails"""
+    pass
+
+
+class TaskValidationError(ValidationError):
+    """Raised when task validation fails"""
+    pass
+
+
+class AgentCapabilityError(AgentOrchestraException):
+    """Raised when agent capability issues occur"""
+    pass
+
+
+class HeartbeatError(AgentOrchestraException):
+    """Raised when agent heartbeat operations fail"""
+    pass
+
+
+class StatusTransitionError(AgentOrchestraException):
+    """Raised when invalid agent status transitions occur"""
+    pass
+
+
+class DuplicateHandlerError(HandlerRegistrationError):
+    """Raised when attempting to register duplicate handlers"""
+    pass
+
+
+class IncompatibleTaskError(TaskExecutionError):
+    """Raised when task is incompatible with agent capabilities"""
+    pass
