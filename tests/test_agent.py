@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import AsyncMock
 from agent_orchestra.agent import Agent
 from agent_orchestra.types import Task, TaskStatus, AgentStatus
-from agent_orchestra.exceptions import AgentUnavailableError, TaskExecutionError
+from agent_orchestra.exceptions import AgentUnavailableError, TaskExecutionError, ValidationError
 
 
 class TestAgent:
@@ -198,3 +198,132 @@ class TestAgent:
         # Should be able to handle the new task type
         new_task = Task(type="new_task_type", data={})
         assert agent.can_handle_task(new_task) is True
+
+
+class TestAgentValidation:
+    """Test cases for Agent input validation"""
+    
+    def test_agent_creation_invalid_agent_id(self):
+        """Test agent creation with invalid agent_id"""
+        # Empty string
+        with pytest.raises(ValidationError, match="agent_id must be a non-empty string"):
+            Agent("")
+        
+        # None
+        with pytest.raises(ValidationError, match="agent_id must be a non-empty string"):
+            Agent(None)
+        
+        # Not a string
+        with pytest.raises(ValidationError, match="agent_id must be a non-empty string"):
+            Agent(123)
+        
+        # Whitespace only
+        with pytest.raises(ValidationError, match="agent_id cannot be whitespace only"):
+            Agent("   ")
+    
+    def test_agent_creation_invalid_name(self):
+        """Test agent creation with invalid name"""
+        # Not a string
+        with pytest.raises(ValidationError, match="name must be a string"):
+            Agent("test", name=123)
+        
+        # None should be ok (uses agent_id)
+        agent = Agent("test", name=None)
+        assert agent.name == "test"
+    
+    def test_agent_creation_invalid_capabilities(self):
+        """Test agent creation with invalid capabilities"""
+        # Not a list
+        with pytest.raises(ValidationError, match="capabilities must be a list"):
+            Agent("test", capabilities="invalid")
+        
+        # List with non-string items
+        with pytest.raises(ValidationError, match="all capabilities must be strings"):
+            Agent("test", capabilities=["valid", 123, "also_valid"])
+    
+    def test_agent_creation_invalid_metadata(self):
+        """Test agent creation with invalid metadata"""
+        # Not a dict
+        with pytest.raises(ValidationError, match="metadata must be a dictionary"):
+            Agent("test", metadata="invalid")
+    
+    def test_agent_creation_whitespace_handling(self):
+        """Test agent creation handles whitespace correctly"""
+        agent = Agent("  test-agent  ", name="  Test Agent  ")
+        
+        assert agent.id == "test-agent"
+        assert agent.name == "Test Agent"
+    
+    def test_register_handler_invalid_task_type(self, agent):
+        """Test registering handler with invalid task_type"""
+        async def dummy_handler(data):
+            return data
+        
+        # Empty string
+        with pytest.raises(ValidationError, match="task_type must be a non-empty string"):
+            agent.register_task_handler("", dummy_handler)
+        
+        # None
+        with pytest.raises(ValidationError, match="task_type must be a non-empty string"):
+            agent.register_task_handler(None, dummy_handler)
+        
+        # Not a string
+        with pytest.raises(ValidationError, match="task_type must be a non-empty string"):
+            agent.register_task_handler(123, dummy_handler)
+        
+        # Whitespace only
+        with pytest.raises(ValidationError, match="task_type cannot be whitespace only"):
+            agent.register_task_handler("   ", dummy_handler)
+    
+    def test_register_handler_invalid_handler(self, agent):
+        """Test registering invalid handler"""
+        # Not callable
+        with pytest.raises(ValidationError, match="handler must be callable"):
+            agent.register_task_handler("test_task", "not_callable")
+        
+        with pytest.raises(ValidationError, match="handler must be callable"):
+            agent.register_task_handler("test_task", 123)
+    
+    def test_register_handler_whitespace_handling(self, agent):
+        """Test handler registration handles whitespace correctly"""
+        async def dummy_handler(data):
+            return data
+        
+        agent.register_task_handler("  task_type  ", dummy_handler)
+        
+        # Should be registered without whitespace
+        test_task = Task(type="task_type", data={})
+        assert agent.can_handle_task(test_task) is True
+    
+    @pytest.mark.asyncio
+    async def test_execute_task_invalid_task(self, agent):
+        """Test executing invalid task"""
+        # None task
+        with pytest.raises(ValidationError, match="task cannot be None"):
+            await agent.execute_task(None)
+        
+        # Not a Task instance
+        with pytest.raises(ValidationError, match="task must be a Task instance"):
+            await agent.execute_task("not_a_task")
+    
+    @pytest.mark.asyncio
+    async def test_execute_task_invalid_task_type(self, agent):
+        """Test executing task with invalid type"""
+        # Create a mock task-like object without proper type
+        class MockTask:
+            def __init__(self, task_type=None):
+                if task_type is not None:
+                    self.type = task_type
+                self.data = {}
+                self.timeout = None
+                self.id = "test-task"
+        
+        # No type attribute
+        mock_task = MockTask()
+        with pytest.raises(ValidationError, match="task must have a valid type"):
+            await agent.execute_task(mock_task)
+        
+        # Empty type
+        mock_task = MockTask("")
+        with pytest.raises(ValidationError, match="task must have a valid type"):
+            await agent.execute_task(mock_task)
