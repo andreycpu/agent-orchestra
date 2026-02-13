@@ -451,3 +451,276 @@ def create_task_batch(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         task["metadata"]["batch_size"] = len(tasks)
     
     return tasks
+
+
+def safe_dict_get(data: Dict[str, Any], keys: str, default: Any = None, separator: str = ".") -> Any:
+    """Safely get nested dictionary value using dot notation
+    
+    Args:
+        data: Dictionary to search
+        keys: Dot-separated key path (e.g., "user.profile.name")
+        default: Default value if key not found
+        separator: Key separator character
+        
+    Returns:
+        Value at the key path or default if not found
+        
+    Examples:
+        >>> data = {"user": {"profile": {"name": "John"}}}
+        >>> safe_dict_get(data, "user.profile.name")
+        'John'
+        >>> safe_dict_get(data, "user.profile.age", 25)
+        25
+    """
+    if not isinstance(data, dict):
+        return default
+        
+    key_list = keys.split(separator)
+    current = data
+    
+    for key in key_list:
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    
+    return current
+
+
+def validate_json_schema(data: Any, schema: Dict[str, Any]) -> tuple[bool, List[str]]:
+    """Simple JSON schema validation
+    
+    Args:
+        data: Data to validate
+        schema: Schema dictionary with type requirements
+        
+    Returns:
+        Tuple of (is_valid, list_of_errors)
+        
+    Example:
+        >>> schema = {"name": str, "age": int, "active": bool}
+        >>> validate_json_schema({"name": "John", "age": 30, "active": True}, schema)
+        (True, [])
+    """
+    errors = []
+    
+    if not isinstance(data, dict):
+        return False, ["Data must be a dictionary"]
+    
+    # Check required fields
+    for field, expected_type in schema.items():
+        if field not in data:
+            errors.append(f"Missing required field: {field}")
+            continue
+            
+        if not isinstance(data[field], expected_type):
+            errors.append(
+                f"Field '{field}' must be of type {expected_type.__name__}, "
+                f"got {type(data[field]).__name__}"
+            )
+    
+    return len(errors) == 0, errors
+
+
+def sanitize_data(data: Dict[str, Any], sensitive_keys: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Sanitize dictionary by redacting sensitive information
+    
+    Args:
+        data: Dictionary to sanitize
+        sensitive_keys: List of keys to redact (case-insensitive)
+        
+    Returns:
+        Sanitized dictionary copy
+        
+    Example:
+        >>> sanitize_data({"name": "John", "password": "secret123"})
+        {'name': 'John', 'password': '[REDACTED]'}
+    """
+    if sensitive_keys is None:
+        sensitive_keys = [
+            "password", "token", "secret", "key", "auth", "credential",
+            "api_key", "access_token", "refresh_token", "private_key"
+        ]
+    
+    sensitive_keys_lower = [key.lower() for key in sensitive_keys]
+    sanitized = {}
+    
+    for key, value in data.items():
+        if key.lower() in sensitive_keys_lower:
+            sanitized[key] = "[REDACTED]"
+        elif isinstance(value, dict):
+            sanitized[key] = sanitize_data(value, sensitive_keys)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                sanitize_data(item, sensitive_keys) if isinstance(item, dict) else item
+                for item in value
+            ]
+        else:
+            sanitized[key] = value
+    
+    return sanitized
+
+
+def calculate_memory_usage() -> Dict[str, int]:
+    """Calculate current memory usage in bytes
+    
+    Returns:
+        Dictionary with memory usage information
+        
+    Note:
+        Requires psutil package for accurate measurements.
+        Falls back to basic measurements if not available.
+    """
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        
+        return {
+            "rss": memory_info.rss,  # Resident Set Size
+            "vms": memory_info.vms,  # Virtual Memory Size
+            "percent": process.memory_percent(),
+            "available": psutil.virtual_memory().available
+        }
+    except ImportError:
+        # Fallback using tracemalloc if psutil not available
+        try:
+            import tracemalloc
+            if tracemalloc.is_tracing():
+                current, peak = tracemalloc.get_traced_memory()
+                return {
+                    "current": current,
+                    "peak": peak,
+                    "rss": 0,
+                    "vms": 0,
+                    "percent": 0,
+                    "available": 0
+                }
+        except:
+            pass
+        
+        # Ultimate fallback
+        return {
+            "rss": 0,
+            "vms": 0,
+            "percent": 0,
+            "available": 0,
+            "current": 0,
+            "peak": 0
+        }
+
+
+class RateLimiter:
+    """Simple rate limiter using token bucket algorithm"""
+    
+    def __init__(self, max_tokens: int, refill_rate: float):
+        """Initialize rate limiter
+        
+        Args:
+            max_tokens: Maximum number of tokens in the bucket
+            refill_rate: Number of tokens added per second
+        """
+        self.max_tokens = max_tokens
+        self.refill_rate = refill_rate
+        self.tokens = max_tokens
+        self.last_refill = time.time()
+    
+    def consume(self, tokens: int = 1) -> bool:
+        """Try to consume tokens from the bucket
+        
+        Args:
+            tokens: Number of tokens to consume
+            
+        Returns:
+            True if tokens were consumed, False if insufficient tokens
+        """
+        self._refill()
+        
+        if self.tokens >= tokens:
+            self.tokens -= tokens
+            return True
+        return False
+    
+    def _refill(self):
+        """Refill tokens based on elapsed time"""
+        now = time.time()
+        elapsed = now - self.last_refill
+        self.last_refill = now
+        
+        tokens_to_add = elapsed * self.refill_rate
+        self.tokens = min(self.max_tokens, self.tokens + tokens_to_add)
+    
+    def time_until_available(self, tokens: int = 1) -> float:
+        """Calculate time until tokens become available
+        
+        Args:
+            tokens: Number of tokens needed
+            
+        Returns:
+            Time in seconds until tokens are available
+        """
+        self._refill()
+        
+        if self.tokens >= tokens:
+            return 0.0
+        
+        tokens_needed = tokens - self.tokens
+        return tokens_needed / self.refill_rate
+
+
+def deep_merge_dicts(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
+    """Deep merge two dictionaries
+    
+    Args:
+        dict1: First dictionary (base)
+        dict2: Second dictionary (override values)
+        
+    Returns:
+        Merged dictionary
+        
+    Example:
+        >>> d1 = {"a": {"b": 1, "c": 2}}
+        >>> d2 = {"a": {"c": 3, "d": 4}}
+        >>> deep_merge_dicts(d1, d2)
+        {'a': {'b': 1, 'c': 3, 'd': 4}}
+    """
+    result = dict1.copy()
+    
+    for key, value in dict2.items():
+        if (
+            key in result 
+            and isinstance(result[key], dict) 
+            and isinstance(value, dict)
+        ):
+            result[key] = deep_merge_dicts(result[key], value)
+        else:
+            result[key] = value
+    
+    return result
+
+
+def truncate_string(text: str, max_length: int, suffix: str = "...") -> str:
+    """Truncate string to maximum length with suffix
+    
+    Args:
+        text: String to truncate
+        max_length: Maximum allowed length including suffix
+        suffix: Suffix to append when truncating
+        
+    Returns:
+        Truncated string
+        
+    Example:
+        >>> truncate_string("This is a very long text", 15)
+        'This is a ve...'
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    
+    if len(text) <= max_length:
+        return text
+    
+    if len(suffix) >= max_length:
+        return suffix[:max_length]
+    
+    truncate_length = max_length - len(suffix)
+    return text[:truncate_length] + suffix
