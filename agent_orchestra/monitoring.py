@@ -11,6 +11,7 @@ import structlog
 
 from .types import Task, TaskStatus, AgentStatus
 from .utils import MetricsCollector
+from .exceptions import ValidationError
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +73,43 @@ class SystemHealth:
     healthy_agents: int = 0
     unhealthy_agents: int = 0
     system_load: float = 0.0
+
+
+@dataclass 
+class Alert:
+    """Monitoring alert information"""
+    alert_id: str
+    severity: str  # 'critical', 'warning', 'info'
+    title: str
+    message: str
+    metric_name: str
+    current_value: float
+    threshold: float
+    timestamp: datetime
+    resolved: bool = False
+    resolved_at: Optional[datetime] = None
+
+
+@dataclass
+class HealthThreshold:
+    """Health check threshold configuration"""
+    metric_name: str
+    warning_threshold: float
+    critical_threshold: float
+    comparison: str = 'greater_than'  # 'greater_than', 'less_than', 'equals'
+    description: str = ""
+
+
+@dataclass
+class PerformanceTrend:
+    """Performance trending information"""
+    metric_name: str
+    current_value: float
+    previous_value: float
+    change_percent: float
+    trend_direction: str  # 'improving', 'degrading', 'stable'
+    sample_count: int
+    time_window_minutes: int
 
 
 class TaskMonitor:
@@ -414,3 +452,466 @@ class OrchestrationMonitor:
                 f"High memory usage: {system_health.memory_usage}%",
                 {"memory_usage": system_health.memory_usage}
             )
+
+
+class AlertManager:
+    """Advanced alerting system with configurable thresholds"""
+    
+    def __init__(self):
+        self._thresholds: Dict[str, HealthThreshold] = {}
+        self._active_alerts: Dict[str, Alert] = {}
+        self._resolved_alerts: List[Alert] = []
+        self._alert_handlers: List[callable] = []
+        self._alert_counter = 0
+        
+        # Default thresholds
+        self._setup_default_thresholds()
+        
+        logger.info("AlertManager initialized")
+    
+    def _setup_default_thresholds(self):
+        """Setup default monitoring thresholds"""
+        default_thresholds = [
+            HealthThreshold("cpu_usage", 75.0, 90.0, "greater_than", "System CPU usage"),
+            HealthThreshold("memory_usage", 80.0, 95.0, "greater_than", "System memory usage"), 
+            HealthThreshold("error_rate", 0.05, 0.1, "greater_than", "Task error rate"),
+            HealthThreshold("queue_depth", 100, 500, "greater_than", "Task queue depth"),
+            HealthThreshold("agent_heartbeat_age", 300, 600, "greater_than", "Agent heartbeat staleness")
+        ]
+        
+        for threshold in default_thresholds:
+            self._thresholds[threshold.metric_name] = threshold
+    
+    def add_threshold(self, threshold: HealthThreshold):
+        """Add or update a health check threshold
+        
+        Args:
+            threshold: Threshold configuration
+            
+        Raises:
+            ValidationError: If threshold is invalid
+        """
+        if not isinstance(threshold, HealthThreshold):
+            raise ValidationError("threshold must be a HealthThreshold instance")
+        if not threshold.metric_name:
+            raise ValidationError("threshold must have a metric_name")
+        if threshold.comparison not in ['greater_than', 'less_than', 'equals']:
+            raise ValidationError("threshold comparison must be 'greater_than', 'less_than', or 'equals'")
+        if threshold.critical_threshold <= threshold.warning_threshold and threshold.comparison == 'greater_than':
+            raise ValidationError("critical_threshold must be greater than warning_threshold for 'greater_than' comparison")
+            
+        self._thresholds[threshold.metric_name] = threshold
+        
+        logger.info(
+            "Health threshold configured",
+            metric=threshold.metric_name,
+            warning=threshold.warning_threshold,
+            critical=threshold.critical_threshold
+        )
+    
+    def check_metric(self, metric_name: str, value: float) -> Optional[Alert]:
+        """Check a metric value against thresholds
+        
+        Args:
+            metric_name: Name of the metric to check
+            value: Current metric value
+            
+        Returns:
+            Alert if threshold exceeded, None otherwise
+        """
+        if metric_name not in self._thresholds:
+            return None
+            
+        threshold = self._thresholds[metric_name]
+        alert_severity = None
+        
+        if threshold.comparison == 'greater_than':
+            if value >= threshold.critical_threshold:
+                alert_severity = 'critical'
+            elif value >= threshold.warning_threshold:
+                alert_severity = 'warning'
+        elif threshold.comparison == 'less_than':
+            if value <= threshold.critical_threshold:
+                alert_severity = 'critical'
+            elif value <= threshold.warning_threshold:
+                alert_severity = 'warning'
+        elif threshold.comparison == 'equals':
+            if abs(value - threshold.critical_threshold) < 0.001:
+                alert_severity = 'critical'
+            elif abs(value - threshold.warning_threshold) < 0.001:
+                alert_severity = 'warning'
+        
+        if alert_severity:
+            return self._create_alert(metric_name, value, threshold, alert_severity)
+        
+        # Check if we should resolve existing alert
+        self._try_resolve_alert(metric_name)
+        return None
+    
+    def _create_alert(self, metric_name: str, value: float, threshold: HealthThreshold, severity: str) -> Alert:
+        """Create a new alert"""
+        self._alert_counter += 1
+        alert_id = f"alert_{self._alert_counter}_{int(time.time())}"
+        
+        alert = Alert(
+            alert_id=alert_id,
+            severity=severity,
+            title=f"{metric_name.replace('_', ' ').title()} {severity.title()}",
+            message=f"{threshold.description}: {value:.2f} exceeds {severity} threshold of {getattr(threshold, f'{severity}_threshold'):.2f}",
+            metric_name=metric_name,
+            current_value=value,
+            threshold=getattr(threshold, f'{severity}_threshold'),
+            timestamp=datetime.utcnow()
+        )
+        
+        # Check if we already have an active alert for this metric
+        if metric_name in self._active_alerts:
+            existing = self._active_alerts[metric_name]
+            # Update existing alert if severity is higher or same
+            if (severity == 'critical') or (severity == 'warning' and existing.severity != 'critical'):
+                self._active_alerts[metric_name] = alert
+        else:
+            self._active_alerts[metric_name] = alert
+            
+        # Trigger alert handlers
+        for handler in self._alert_handlers:
+            try:
+                handler(alert)
+            except Exception as e:
+                logger.error("Alert handler failed", error=str(e), alert_id=alert_id)
+        
+        logger.warning(
+            "Alert created",
+            alert_id=alert_id,
+            severity=severity,
+            metric=metric_name,
+            value=value,
+            threshold=alert.threshold
+        )
+        
+        return alert
+    
+    def _try_resolve_alert(self, metric_name: str):
+        """Try to resolve an active alert if metric is back to normal"""
+        if metric_name in self._active_alerts:
+            alert = self._active_alerts[metric_name]
+            alert.resolved = True
+            alert.resolved_at = datetime.utcnow()
+            
+            self._resolved_alerts.append(alert)
+            del self._active_alerts[metric_name]
+            
+            # Keep only last 1000 resolved alerts
+            if len(self._resolved_alerts) > 1000:
+                self._resolved_alerts.pop(0)
+            
+            logger.info("Alert resolved", alert_id=alert.alert_id, metric=metric_name)
+    
+    def add_alert_handler(self, handler: callable):
+        """Add a custom alert handler function
+        
+        Args:
+            handler: Function that accepts Alert object
+        """
+        if not callable(handler):
+            raise ValidationError("handler must be callable")
+            
+        self._alert_handlers.append(handler)
+        logger.info("Alert handler added")
+    
+    def get_active_alerts(self, severity: Optional[str] = None) -> List[Alert]:
+        """Get active alerts, optionally filtered by severity"""
+        alerts = list(self._active_alerts.values())
+        
+        if severity:
+            alerts = [alert for alert in alerts if alert.severity == severity]
+            
+        return sorted(alerts, key=lambda x: x.timestamp, reverse=True)
+    
+    def get_resolved_alerts(self, limit: int = 100) -> List[Alert]:
+        """Get recently resolved alerts"""
+        return self._resolved_alerts[-limit:]
+    
+    def resolve_alert(self, alert_id: str) -> bool:
+        """Manually resolve an alert
+        
+        Args:
+            alert_id: ID of alert to resolve
+            
+        Returns:
+            True if alert was resolved, False if not found
+        """
+        for metric_name, alert in self._active_alerts.items():
+            if alert.alert_id == alert_id:
+                self._try_resolve_alert(metric_name)
+                return True
+        
+        return False
+
+
+class PerformanceTrendAnalyzer:
+    """Analyze performance trends over time"""
+    
+    def __init__(self, sample_size: int = 100):
+        self._sample_size = sample_size
+        self._metric_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=sample_size))
+        self._last_analysis: Dict[str, datetime] = {}
+    
+    def record_metric(self, metric_name: str, value: float, timestamp: Optional[datetime] = None):
+        """Record a metric value
+        
+        Args:
+            metric_name: Name of the metric
+            value: Metric value
+            timestamp: Optional timestamp (uses current time if None)
+            
+        Raises:
+            ValidationError: If parameters are invalid
+        """
+        if not metric_name:
+            raise ValidationError("metric_name cannot be empty")
+        if not isinstance(value, (int, float)):
+            raise ValidationError("value must be numeric")
+            
+        timestamp = timestamp or datetime.utcnow()
+        
+        self._metric_history[metric_name].append({
+            'value': value,
+            'timestamp': timestamp
+        })
+    
+    def analyze_trend(self, metric_name: str, window_minutes: int = 30) -> Optional[PerformanceTrend]:
+        """Analyze trend for a specific metric
+        
+        Args:
+            metric_name: Metric to analyze
+            window_minutes: Time window for analysis
+            
+        Returns:
+            PerformanceTrend object or None if insufficient data
+        """
+        if metric_name not in self._metric_history:
+            return None
+            
+        history = self._metric_history[metric_name]
+        if len(history) < 2:
+            return None
+        
+        # Filter to time window
+        cutoff_time = datetime.utcnow() - timedelta(minutes=window_minutes)
+        recent_data = [
+            entry for entry in history 
+            if entry['timestamp'] >= cutoff_time
+        ]
+        
+        if len(recent_data) < 2:
+            return None
+        
+        # Calculate trend
+        values = [entry['value'] for entry in recent_data]
+        current_value = values[-1]
+        previous_value = sum(values[:-1]) / len(values[:-1])  # Average of previous values
+        
+        change_percent = ((current_value - previous_value) / previous_value * 100) if previous_value != 0 else 0
+        
+        # Determine trend direction
+        if abs(change_percent) < 5:  # Less than 5% change is stable
+            trend_direction = 'stable'
+        elif change_percent > 0:
+            # For most metrics, higher is worse, but this could be configurable
+            trend_direction = 'degrading'
+        else:
+            trend_direction = 'improving'
+        
+        return PerformanceTrend(
+            metric_name=metric_name,
+            current_value=current_value,
+            previous_value=previous_value,
+            change_percent=change_percent,
+            trend_direction=trend_direction,
+            sample_count=len(recent_data),
+            time_window_minutes=window_minutes
+        )
+    
+    def get_all_trends(self, window_minutes: int = 30) -> Dict[str, PerformanceTrend]:
+        """Get trends for all tracked metrics"""
+        trends = {}
+        
+        for metric_name in self._metric_history.keys():
+            trend = self.analyze_trend(metric_name, window_minutes)
+            if trend:
+                trends[metric_name] = trend
+        
+        return trends
+
+
+class CustomMetricsCollector:
+    """Collect and manage custom application metrics"""
+    
+    def __init__(self):
+        self._counters: Dict[str, float] = defaultdict(float)
+        self._gauges: Dict[str, float] = defaultdict(float)
+        self._histograms: Dict[str, List[float]] = defaultdict(list)
+        self._timers: Dict[str, List[float]] = defaultdict(list)
+        self._metadata: Dict[str, Dict[str, Any]] = {}
+    
+    def increment_counter(self, name: str, value: float = 1.0, tags: Optional[Dict[str, str]] = None):
+        """Increment a counter metric
+        
+        Args:
+            name: Counter name
+            value: Amount to increment by
+            tags: Optional tags for the metric
+        """
+        if not name:
+            raise ValidationError("counter name cannot be empty")
+        if value < 0:
+            raise ValidationError("counter increment value cannot be negative")
+            
+        key = self._make_key(name, tags)
+        self._counters[key] += value
+        
+        logger.debug("Counter incremented", name=name, value=value, total=self._counters[key])
+    
+    def set_gauge(self, name: str, value: float, tags: Optional[Dict[str, str]] = None):
+        """Set a gauge metric value
+        
+        Args:
+            name: Gauge name  
+            value: Value to set
+            tags: Optional tags for the metric
+        """
+        if not name:
+            raise ValidationError("gauge name cannot be empty")
+        if not isinstance(value, (int, float)):
+            raise ValidationError("gauge value must be numeric")
+            
+        key = self._make_key(name, tags)
+        self._gauges[key] = value
+        
+        logger.debug("Gauge set", name=name, value=value)
+    
+    def record_histogram(self, name: str, value: float, tags: Optional[Dict[str, str]] = None):
+        """Record a value in a histogram
+        
+        Args:
+            name: Histogram name
+            value: Value to record
+            tags: Optional tags for the metric
+        """
+        if not name:
+            raise ValidationError("histogram name cannot be empty")
+        if not isinstance(value, (int, float)):
+            raise ValidationError("histogram value must be numeric")
+            
+        key = self._make_key(name, tags)
+        self._histograms[key].append(value)
+        
+        # Keep only last 1000 values to prevent memory issues
+        if len(self._histograms[key]) > 1000:
+            self._histograms[key].pop(0)
+    
+    def time_operation(self, name: str, duration: float, tags: Optional[Dict[str, str]] = None):
+        """Record operation timing
+        
+        Args:
+            name: Timer name
+            duration: Duration in seconds
+            tags: Optional tags for the metric
+        """
+        if not name:
+            raise ValidationError("timer name cannot be empty")
+        if duration < 0:
+            raise ValidationError("timer duration cannot be negative")
+            
+        key = self._make_key(name, tags)
+        self._timers[key].append(duration)
+        
+        # Keep only last 1000 values
+        if len(self._timers[key]) > 1000:
+            self._timers[key].pop(0)
+    
+    def _make_key(self, name: str, tags: Optional[Dict[str, str]]) -> str:
+        """Create a unique key for a metric with tags"""
+        if not tags:
+            return name
+            
+        # Sort tags for consistent key generation
+        tag_string = ','.join(f"{k}={v}" for k, v in sorted(tags.items()))
+        return f"{name}[{tag_string}]"
+    
+    def get_counter(self, name: str, tags: Optional[Dict[str, str]] = None) -> float:
+        """Get current counter value"""
+        key = self._make_key(name, tags)
+        return self._counters.get(key, 0.0)
+    
+    def get_gauge(self, name: str, tags: Optional[Dict[str, str]] = None) -> float:
+        """Get current gauge value"""
+        key = self._make_key(name, tags)
+        return self._gauges.get(key, 0.0)
+    
+    def get_histogram_stats(self, name: str, tags: Optional[Dict[str, str]] = None) -> Dict[str, float]:
+        """Get histogram statistics"""
+        key = self._make_key(name, tags)
+        values = self._histograms.get(key, [])
+        
+        if not values:
+            return {"count": 0}
+        
+        sorted_values = sorted(values)
+        count = len(values)
+        
+        return {
+            "count": count,
+            "min": min(values),
+            "max": max(values),
+            "mean": sum(values) / count,
+            "p50": sorted_values[int(count * 0.5)],
+            "p95": sorted_values[int(count * 0.95)],
+            "p99": sorted_values[int(count * 0.99)]
+        }
+    
+    def get_timer_stats(self, name: str, tags: Optional[Dict[str, str]] = None) -> Dict[str, float]:
+        """Get timer statistics"""
+        return self.get_histogram_stats(name, tags)  # Same calculation
+    
+    def reset_metrics(self):
+        """Reset all collected metrics"""
+        self._counters.clear()
+        self._gauges.clear()
+        self._histograms.clear()
+        self._timers.clear()
+        
+        logger.info("All metrics reset")
+    
+    def get_all_metrics(self) -> Dict[str, Any]:
+        """Get all collected metrics"""
+        return {
+            "counters": dict(self._counters),
+            "gauges": dict(self._gauges),
+            "histogram_stats": {
+                name: self.get_histogram_stats(name.split('[')[0], 
+                    self._parse_tags_from_key(name) if '[' in name else None)
+                for name in self._histograms.keys()
+            },
+            "timer_stats": {
+                name: self.get_timer_stats(name.split('[')[0],
+                    self._parse_tags_from_key(name) if '[' in name else None) 
+                for name in self._timers.keys()
+            }
+        }
+    
+    def _parse_tags_from_key(self, key: str) -> Dict[str, str]:
+        """Parse tags from a metric key"""
+        if '[' not in key:
+            return {}
+            
+        tag_part = key.split('[', 1)[1].rstrip(']')
+        tags = {}
+        
+        for tag_pair in tag_part.split(','):
+            if '=' in tag_pair:
+                k, v = tag_pair.split('=', 1)
+                tags[k] = v
+        
+        return tags
